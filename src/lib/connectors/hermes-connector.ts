@@ -11,15 +11,14 @@ import type {
 
 /**
  * Talks to a real Hermes Agent instance over SSH: shells out to
- * `hermes chat -q "<prompt>" -Q --yolo --source tool` on the remote box and
- * reports the response as a single "streamed" chunk (Hermes's `-Q` mode returns
- * the full response in one shot to stdout — session id / errors go to stderr, so
- * stdout is always exactly the model's answer, confirmed from cli.py's quiet
- * single-query path). `--yolo` is required so tool/skill calls don't hang waiting
- * for an interactive approval that never comes in non-TTY quiet mode.
- * No conversation continuity between runs: each node invocation is a fresh
- * Hermes session, matching how the run engine already has no persistent
- * per-node state.
+ * `hermes chat -q "<prompt>" -Q --yolo --source agentos [--resume <id>]` on the
+ * remote box and reports the response as a single "streamed" chunk (Hermes's
+ * `-Q` mode returns the full response in one shot to stdout — session id /
+ * errors go to stderr, so stdout is always exactly the model's answer).
+ * `--yolo` is required so tool/skill calls don't hang waiting for an
+ * interactive approval that never comes in non-TTY quiet mode.
+ * Pipeline runs pass `context.sessionId` so later nodes `--resume` the same
+ * Hermes chat and keep conversation context across steps.
  */
 export interface HermesConnectorOptions {
   host?: string;
@@ -153,6 +152,10 @@ export class HermesConnector implements AgentConnector {
         ? options.context.workspaceFolder
         : "/home/hermes";
     const model = options.context?.model;
+    const sessionId =
+      typeof options.context?.sessionId === "string" && options.context.sessionId
+        ? options.context.sessionId
+        : null;
     const chatArgs = [
       this.config.hermesBin,
       "chat",
@@ -161,8 +164,9 @@ export class HermesConnector implements AgentConnector {
       "-Q",
       "--yolo",
       "--source",
-      "tool",
+      "agentos",
     ];
+    if (sessionId) chatArgs.push("--resume", shellQuote(sessionId));
     if (typeof model === "string" && model) chatArgs.push("-m", shellQuote(model));
     const chatCommand = chatArgs.join(" ");
     const command = `cd ${shellQuote(workspaceFolder)} && ${chatCommand}`;
@@ -180,6 +184,11 @@ export class HermesConnector implements AgentConnector {
         result.stderr.trim() || result.stdout.trim() || `hermes exited with code ${result.code}`;
       yield { type: "error", error: message };
       return;
+    }
+
+    const resumedSessionId = parseSessionId(result.stderr) ?? sessionId;
+    if (resumedSessionId) {
+      yield { type: "meta", sessionId: resumedSessionId };
     }
 
     const text = result.stdout.trim();

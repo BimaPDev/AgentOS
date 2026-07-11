@@ -174,6 +174,9 @@ export async function runGraph({
 
   log(`Run started for graph "${graphId}" (${order.length} node${order.length === 1 ? "" : "s"}).`);
 
+  /** Shared Hermes chat session for this run — later nodes resume it for context. */
+  let hermesSessionId: string | null = null;
+
   for (const nodeId of order) {
     if (signal?.aborted) {
       return haltRunAsCancelled({ runId: run.id, nodeId: null, callbacks, log });
@@ -183,13 +186,19 @@ export async function runGraph({
     if (!node) continue;
 
     const predecessorIds = edges.filter((e) => e.target === nodeId).map((e) => e.source);
+    const upstreamText = predecessorIds
+      .map((id) => outputs.get(id))
+      .filter((v): v is string => !!v)
+      .join("\n");
+
+    // Hermes: each node sends its own instruction; prior turns live in the resumed session.
+    // Other connectors: fold upstream output into the prompt so they still get prior context.
     const inputText =
-      predecessorIds.length > 0
-        ? predecessorIds
-            .map((id) => outputs.get(id))
-            .filter((v): v is string => !!v)
-            .join("\n")
-        : node.seedPrompt;
+      node.connectorType === "hermes"
+        ? node.seedPrompt
+        : upstreamText
+          ? `${node.seedPrompt}\n\n---\nContext from upstream nodes:\n${upstreamText}`
+          : node.seedPrompt;
 
     callbacks.onNodeStatus(nodeId, "running");
     persistNodeState(run.id, nodeId, {
@@ -197,7 +206,13 @@ export async function runGraph({
       inputText,
       startedAt: new Date().toISOString(),
     }).catch(() => {});
-    log(`Running node…`, "info", nodeId);
+    log(
+      hermesSessionId && node.connectorType === "hermes"
+        ? `Running node (resuming Hermes session ${hermesSessionId})…`
+        : `Running node…`,
+      "info",
+      nodeId,
+    );
 
     let fullText = "";
     let errorMessage: string | null = null;
@@ -212,6 +227,9 @@ export async function runGraph({
           toolArgs: node.toolArgs,
           workspaceFolder: node.workspaceFolder,
           model: node.model,
+          ...(node.connectorType === "hermes" && hermesSessionId
+            ? { sessionId: hermesSessionId }
+            : {}),
         },
         signal,
       })) {
@@ -220,6 +238,13 @@ export async function runGraph({
           callbacks.onToken(nodeId, chunk.content);
         } else if (chunk.type === "tool-call") {
           log(`Tool call: ${chunk.toolName}(${JSON.stringify(chunk.toolArgs)})`, "debug", nodeId);
+        } else if (chunk.type === "meta" && chunk.sessionId) {
+          if (!hermesSessionId) {
+            hermesSessionId = chunk.sessionId;
+            log(`Hermes session ${hermesSessionId} — later nodes will reuse this chat.`, "info", nodeId);
+          } else {
+            hermesSessionId = chunk.sessionId;
+          }
         } else if (chunk.type === "error") {
           errorMessage = chunk.error;
         }

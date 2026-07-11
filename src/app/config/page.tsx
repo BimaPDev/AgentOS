@@ -1,7 +1,8 @@
-import { getHermesConnector } from "@/lib/connectors";
+import { getHermesConnector, getRouter9Connector } from "@/lib/connectors";
 import { AppShell } from "@/components/layout/app-shell";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { HermesStatusWidget } from "@/components/config/hermes-status-widget";
+import { Router9StatusWidget } from "@/components/config/router9-status-widget";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export default function ConfigPage() {
   const hermes = getHermesConnector().getConnectionInfo();
+  const router9 = getRouter9Connector().getConnectionInfo();
 
   return (
     <AppShell breadcrumb={<Breadcrumbs items={[{ label: "Config" }]} />}>
@@ -45,6 +47,18 @@ export default function ConfigPage() {
             </div>
             <div className="mt-4">
               <HermesStatusWidget />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="mb-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">9Router connector</h2>
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <Row label="Base URL" value={router9.baseUrl} />
+              <Row label="Default model" value={router9.defaultModel} />
+              <Row label="API key" value={router9.hasApiKey ? "configured" : "not set (using open providers)"} />
+            </div>
+            <div className="mt-4">
+              <Router9StatusWidget />
             </div>
           </section>
         </div>

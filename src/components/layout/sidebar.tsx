@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Bot,
   MessageSquare,
+  MessagesSquare,
   PlayCircle,
   ScrollText,
   Wrench,
@@ -15,8 +16,19 @@ import {
   Settings,
   Server,
   FolderGit2,
+  FolderOpen,
+  Cpu,
+  Clock3,
+  Puzzle,
+  Radio,
+  Webhook,
+  ShieldCheck,
+  Users,
+  KeyRound,
+  BookOpen,
   PanelLeftClose,
   PanelLeftOpen,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { useRunStore } from "@/lib/stores/run-store";
@@ -30,17 +42,45 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Agents", href: "/agents", icon: Bot },
-  { label: "Chat", href: "/chat", icon: MessageSquare },
-  { label: "Runs", href: "/runs", icon: PlayCircle },
-  { label: "Logs", href: "/logs", icon: ScrollText },
-  { label: "Skills", href: "/skills", icon: Wrench },
-  { label: "Folders", href: "/folders", icon: FolderGit2 },
-  { label: "MCP", href: "/mcp", icon: Plug },
-  { label: "Config", href: "/config", icon: Settings },
-  { label: "System", href: "/system", icon: Server },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Hermes",
+    items: [
+      { label: "Chat", href: "/chat", icon: MessageSquare },
+      { label: "Sessions", href: "/sessions", icon: MessagesSquare },
+      { label: "Files", href: "/hermes/files", icon: FolderOpen },
+      { label: "Models", href: "/models", icon: Cpu },
+      { label: "Logs", href: "/hermes/logs", icon: ScrollText },
+      { label: "Cron", href: "/hermes/cron", icon: Clock3 },
+      { label: "Skills", href: "/skills", icon: Wrench },
+      { label: "Plugins", href: "/hermes/plugins", icon: Puzzle },
+      { label: "MCP", href: "/mcp", icon: Plug },
+      { label: "Channels", href: "/hermes/channels", icon: Radio },
+      { label: "Webhooks", href: "/hermes/webhooks", icon: Webhook },
+      { label: "Pairing", href: "/hermes/pairing", icon: ShieldCheck },
+      { label: "Profiles", href: "/hermes/profiles", icon: Users },
+      { label: "Config", href: "/hermes/config", icon: Settings },
+      { label: "Keys", href: "/hermes/keys", icon: KeyRound },
+      { label: "System", href: "/hermes/system", icon: Server },
+      { label: "Docs", href: "/hermes/documentation", icon: BookOpen },
+    ],
+  },
+  {
+    label: "AgentOS",
+    items: [
+      { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+      { label: "Agents", href: "/agents", icon: Bot },
+      { label: "Runs", href: "/runs", icon: PlayCircle },
+      { label: "Activity", href: "/logs", icon: Activity },
+      { label: "Folders", href: "/folders", icon: FolderGit2 },
+      { label: "Settings", href: "/config", icon: Settings },
+    ],
+  },
 ];
 
 export function Sidebar() {
@@ -48,9 +88,6 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const runStatus = useRunStore((s) => s.status);
 
-  // Read persisted state from localStorage after mount. Kept in an effect
-  // (rather than a lazy useState initializer) so server and client render the
-  // same default and avoid a hydration mismatch; localStorage is client-only.
   useEffect(() => {
     if (typeof window === "undefined") return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -89,40 +126,55 @@ export function Sidebar() {
         </button>
       </div>
 
-      <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = item.icon;
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                className={clsx(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium uppercase tracking-wide transition-colors",
-                  isActive
-                    ? "bg-zinc-100 text-indigo-600 dark:bg-zinc-800 dark:text-indigo-400"
-                    : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100",
-                )}
-              >
-                <Icon size={16} className="shrink-0" />
-                {!collapsed && <span className="truncate text-xs">{item.label}</span>}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-2">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label}>
+            {!collapsed && (
+              <div className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                {group.label}
+              </div>
+            )}
+            <ul className="flex flex-col gap-0.5">
+              {group.items.map((item) => {
+                const isActive =
+                  pathname === item.href ||
+                  pathname.startsWith(item.href + "/") ||
+                  (item.href === "/hermes/files" && pathname.startsWith("/hermes/files")) ||
+                  (item.href.startsWith("/hermes/") && pathname === item.href);
+                const Icon = item.icon;
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      title={collapsed ? item.label : undefined}
+                      className={clsx(
+                        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium uppercase tracking-wide transition-colors",
+                        isActive
+                          ? "bg-zinc-100 text-indigo-600 dark:bg-zinc-800 dark:text-indigo-400"
+                          : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100",
+                      )}
+                    >
+                      <Icon size={16} className="shrink-0" />
+                      {!collapsed && <span className="truncate text-xs">{item.label}</span>}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
 
       <div className="shrink-0 border-t border-zinc-200 p-3 dark:border-zinc-800">
         {collapsed ? (
-          <div title={`Connector: Mock · Run: ${runStatus}`} className="flex justify-center">
+          <div title={`Run: ${runStatus}`} className="flex justify-center">
             <NodeStatusBadge status={runStatus} />
           </div>
         ) : (
           <div className="flex flex-col gap-1.5 text-xs">
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
-              <span>Connector</span>
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">Mock</span>
+              <span>Layer</span>
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">Hermes</span>
             </div>
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Run</span>

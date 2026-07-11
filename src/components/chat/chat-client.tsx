@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Loader2,
   MessageSquare,
@@ -16,6 +17,7 @@ import type {
   HermesChatSessionDetail,
   HermesChatSessionsResult,
 } from "@/lib/hermes-chat";
+import type { HermesStatus } from "@/lib/hermes-admin";
 import type { StreamChunk } from "@/lib/connectors/types";
 
 interface ChatClientProps {
@@ -85,6 +87,7 @@ async function* readNdjson(response: Response): AsyncGenerator<StreamChunk> {
 }
 
 export function ChatClient({ initialSessions }: ChatClientProps) {
+  const searchParams = useSearchParams();
   const [sessions, setSessions] = useState(initialSessions.sessions);
   const [sessionsError, setSessionsError] = useState(initialSessions.error ?? null);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -96,26 +99,32 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
   const [sending, setSending] = useState(false);
   const [model, setModel] = useState("");
   const [models, setModels] = useState<Router9Model[] | null>(null);
+  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const openedFromQuery = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<{ models: Router9Model[] }>("/api/router9/models")
-      .then((res) => {
+    Promise.all([
+      apiFetch<{ models: Router9Model[] }>("/api/router9/models"),
+      apiFetch<HermesStatus>("/api/hermes/status"),
+    ])
+      .then(([modelsRes, status]) => {
         if (cancelled) return;
-        // Prefer the Free_Homelab combo at the top of the picker; do NOT
-        // auto-select a model — leave "" so Hermes uses its own default
-        // (config model.default = Free_Homelab) unless the user overrides.
-        const sorted = [...res.models].sort((a, b) => {
-          if (a.id === "Free_Homelab") return -1;
-          if (b.id === "Free_Homelab") return 1;
+        const defaultId = status.defaultModel ?? "Free_Homelab";
+        const sorted = [...modelsRes.models].sort((a, b) => {
+          if (a.id === defaultId) return -1;
+          if (b.id === defaultId) return 1;
           return a.id.localeCompare(b.id);
         });
         setModels(sorted);
+        setHermesStatus(status);
       })
-      .catch(() => !cancelled && setModels([]));
+      .catch(() => {
+        if (!cancelled) setModels([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -145,6 +154,7 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
     try {
       const detail = await apiFetch<HermesChatSessionDetail>(`/api/hermes/sessions/${id}`);
       setMessages(toUiMessages(detail.messages));
+      // Keep Hermes default unless the session recorded a specific model override.
       if (detail.session?.model) setModel(detail.session.model);
     } catch (err) {
       setMessages([]);
@@ -153,6 +163,13 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
       setLoadingThread(false);
     }
   }, []);
+
+  useEffect(() => {
+    const sessionId = searchParams.get("session");
+    if (!sessionId || openedFromQuery.current) return;
+    openedFromQuery.current = true;
+    void openSession(sessionId);
+  }, [searchParams, openSession]);
 
   const startNewChat = () => {
     abortRef.current?.abort();
@@ -313,10 +330,12 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
                     <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
                       <span>{formatWhen(session.endedAt ?? session.startedAt)}</span>
                       <span>·</span>
-                      <span>{session.source}</span>
-                      <span>·</span>
                       <span>
                         {session.messageCount} msg{session.messageCount === 1 ? "" : "s"}
+                      </span>
+                      <span>·</span>
+                      <span className="rounded bg-zinc-100 px-1 py-0.5 font-medium dark:bg-zinc-800">
+                        {session.source}
                       </span>
                     </div>
                   </button>
@@ -352,21 +371,40 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
                 : "Talk directly to Hermes. History is loaded from Hermes itself."}
             </p>
           </div>
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            disabled={sending || models === null}
-            className="max-w-[18rem] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
-            title="Leave on Free_Homelab (auto) to use Hermes' configured combo with fallback"
-            aria-label="Model"
-          >
-            <option value="">Free_Homelab (auto)</option>
-            {(models ?? []).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id === "Free_Homelab" ? "Free_Homelab (force)" : m.id}
-              </option>
-            ))}
-          </select>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex flex-col items-end gap-0.5">
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={sending || models === null}
+                  className="max-w-[16rem] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+                  title="Leave on Hermes default (auto) to use Free_Homelab combo with fallback"
+                  aria-label="Model"
+                >
+                  <option value="">
+                    {hermesStatus?.defaultModel
+                      ? `${hermesStatus.defaultModel} (auto)`
+                      : "Hermes default (auto)"}
+                  </option>
+                  {(models ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id}
+                    </option>
+                  ))}
+                </select>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                    hermesStatus?.live
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                      : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                  }`}
+                >
+                  {hermesStatus?.live ? "live" : hermesStatus ? "offline" : "…"}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

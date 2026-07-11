@@ -11,6 +11,11 @@ export interface HermesStatus {
   version?: string;
   error?: string;
   connection: HermesConnectionInfo;
+  /** Live model/provider from Hermes config.yaml (source of truth). */
+  defaultModel?: string | null;
+  provider?: string | null;
+  /** True when Hermes CLI answers and (if checkable) the inference endpoint looks up. */
+  live?: boolean;
 }
 
 export async function getHermesStatus(): Promise<HermesStatus> {
@@ -18,26 +23,88 @@ export async function getHermesStatus(): Promise<HermesStatus> {
   const info = connector.getConnectionInfo();
   const startedAt = Date.now();
   try {
-    const result = await connector.runCommand(["version"]);
+    const [versionResult, modelInfo] = await Promise.all([
+      connector.runCommand(["version"]),
+      getHermesModelConfig().catch(() => null),
+    ]);
     const latencyMs = Date.now() - startedAt;
-    if (result.code !== 0) {
+    if (versionResult.code !== 0) {
       return {
         ok: false,
         connection: info,
         latencyMs,
-        error: result.stderr.trim() || result.stdout.trim() || `hermes exited with code ${result.code}`,
+        error:
+          versionResult.stderr.trim() ||
+          versionResult.stdout.trim() ||
+          `hermes exited with code ${versionResult.code}`,
+        defaultModel: modelInfo?.defaultModel ?? null,
+        provider: modelInfo?.provider ?? null,
+        live: false,
       };
     }
-    return { ok: true, connection: info, latencyMs, version: result.stdout.trim() };
+    return {
+      ok: true,
+      connection: info,
+      latencyMs,
+      version: versionResult.stdout.trim(),
+      defaultModel: modelInfo?.defaultModel ?? null,
+      provider: modelInfo?.provider ?? null,
+      live: true,
+    };
   } catch (err) {
     return {
       ok: false,
       connection: info,
       latencyMs: Date.now() - startedAt,
       error: err instanceof Error ? err.message : String(err),
+      live: false,
     };
   }
 }
+
+export interface HermesModelConfig {
+  defaultModel: string | null;
+  provider: string | null;
+  baseUrl: string | null;
+}
+
+/** Reads `model.*` from Hermes `~/.hermes/config.yaml` over SSH. */
+export async function getHermesModelConfig(): Promise<HermesModelConfig> {
+  const connector = getHermesConnector();
+  const py = `
+import json
+try:
+    import yaml
+except ImportError:
+    import sys
+    sys.path.insert(0, "/home/hermes/.hermes/hermes-agent/venv/lib/python3.11/site-packages")
+    import yaml
+cfg = yaml.safe_load(open("/home/hermes/.hermes/config.yaml")) or {}
+model = cfg.get("model") or {}
+print(json.dumps({
+    "defaultModel": model.get("default"),
+    "provider": model.get("provider"),
+    "baseUrl": model.get("base_url"),
+}))
+`.trim();
+  const result = await connector.runShell(
+    `/home/hermes/.hermes/hermes-agent/venv/bin/python3 -c ${shellQuote(py)}`,
+  );
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || `exited with code ${result.code}`);
+  }
+  const parsed = JSON.parse(result.stdout.trim()) as {
+    defaultModel?: string | null;
+    provider?: string | null;
+    baseUrl?: string | null;
+  };
+  return {
+    defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : null,
+    provider: typeof parsed.provider === "string" ? parsed.provider : null,
+    baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : null,
+  };
+}
+
 
 export interface McpServersResult {
   servers: Record<string, string>[];

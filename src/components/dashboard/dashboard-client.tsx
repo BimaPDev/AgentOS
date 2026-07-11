@@ -11,6 +11,7 @@ import {
   ScheduledTasksPanel,
   StatTile,
 } from "@/components/dashboard/dashboard-panels";
+import { HermesOverviewPanel } from "@/components/dashboard/hermes-overview-panel";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -75,7 +76,7 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               ? `${stats.activeRuns} run${stats.activeRuns === 1 ? "" : "s"} in progress`
               : "All systems nominal"}
             <span className="text-zinc-300 dark:text-zinc-600">·</span>
-            Mock connector
+            Layer above Hermes
           </p>
         </div>
         <div className="text-right">
@@ -107,6 +108,10 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
           hint={stats.activeRuns > 0 ? "running" : "idle"}
           accent={stats.activeRuns > 0 ? "amber" : undefined}
         />
+      </div>
+
+      <div className="mb-6">
+        <HermesOverviewPanel />
       </div>
 
       {/* Main grid */}

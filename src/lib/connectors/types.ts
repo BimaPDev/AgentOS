@@ -25,6 +25,7 @@ export interface SendPromptOptions {
 export type StreamChunk =
   | { type: "token"; content: string }
   | { type: "tool-call"; toolName: string; toolArgs: Record<string, unknown> }
+  | { type: "meta"; sessionId?: string }
   | { type: "error"; error: string }
   | { type: "done" };
 

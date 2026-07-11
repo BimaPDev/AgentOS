@@ -7,6 +7,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard,
   Bot,
+  MessageSquare,
   PlayCircle,
   ScrollText,
   Wrench,
@@ -32,6 +33,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Agents", href: "/agents", icon: Bot },
+  { label: "Chat", href: "/chat", icon: MessageSquare },
   { label: "Runs", href: "/runs", icon: PlayCircle },
   { label: "Logs", href: "/logs", icon: ScrollText },
   { label: "Skills", href: "/skills", icon: Wrench },

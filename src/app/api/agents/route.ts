@@ -16,6 +16,7 @@ export async function POST(request: Request) {
     description: body.description ?? null,
     connectorType: body.connectorType ?? "mock",
     workspaceFolder: body.workspaceFolder ?? null,
+    model: body.model ?? null,
     positionX: body.positionX ?? 0,
     positionY: body.positionY ?? 0,
     color: body.color ?? null,

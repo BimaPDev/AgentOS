@@ -189,6 +189,61 @@ export class HermesConnector implements AgentConnector {
   }
 
   /**
+   * One-shot non-streaming chat: runs `hermes chat -q … -Q` and returns the
+   * full stdout answer. Used by Smart Agent Maker (and anything else that
+   * needs the complete reply rather than the run-engine token stream).
+   */
+  async complete(prompt: string, signal?: AbortSignal, workspaceFolder?: string | null): Promise<string> {
+    const turn = await this.chatTurn({ prompt, signal, workspaceFolder, source: "tool" });
+    return turn.text;
+  }
+
+  /**
+   * Conversational chat turn against Hermes' SQLite session store.
+   * Uses `hermes chat -q … -Q [--resume <id>] --source <source> --yolo`.
+   * Quiet mode prints `session_id: …` on stderr (stdout stays the answer).
+   */
+  async chatTurn(options: {
+    prompt: string;
+    sessionId?: string | null;
+    workspaceFolder?: string | null;
+    source?: string;
+    signal?: AbortSignal;
+  }): Promise<{ text: string; sessionId: string | null; stderr: string }> {
+    await this.connect();
+    const source = options.source ?? "agentos";
+    const args = [
+      this.config.hermesBin,
+      "chat",
+      "-q",
+      shellQuote(options.prompt),
+      "-Q",
+      "--source",
+      shellQuote(source),
+      "--yolo",
+    ];
+    if (options.sessionId) {
+      args.push("--resume", shellQuote(options.sessionId));
+    }
+    const chatCommand = args.join(" ");
+    const command =
+      typeof options.workspaceFolder === "string" && options.workspaceFolder
+        ? `cd ${shellQuote(options.workspaceFolder)} && ${chatCommand}`
+        : chatCommand;
+
+    const result = await this.exec(command, options.signal);
+    const sessionId = parseSessionId(result.stderr) ?? options.sessionId ?? null;
+
+    if (result.code !== 0) {
+      throw new Error(
+        result.stderr.trim() || result.stdout.trim() || `hermes exited with code ${result.code}`,
+      );
+    }
+
+    return { text: result.stdout.trim(), sessionId, stderr: result.stderr };
+  }
+
+  /**
    * Runs an arbitrary `hermes <args...>` subcommand (e.g. `["mcp", "list"]`)
    * and returns its raw output. For admin/status pages, not the chat path —
    * those commands don't touch the LLM so they work even without a
@@ -239,4 +294,10 @@ export class HermesConnector implements AgentConnector {
       });
     });
   }
+}
+
+/** Quiet-mode Hermes prints `session_id: <id>` on stderr for automation wrappers. */
+export function parseSessionId(stderr: string): string | null {
+  const match = stderr.match(/session_id:\s*(\S+)/i);
+  return match?.[1] ?? null;
 }

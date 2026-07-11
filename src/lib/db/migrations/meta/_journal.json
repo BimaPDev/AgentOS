@@ -15,6 +15,13 @@
       "when": 1783761214372,
       "tag": "0001_special_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783764745495,
+      "tag": "0002_curvy_professor_monster",
+      "breakpoints": true
     }
   ]
 }

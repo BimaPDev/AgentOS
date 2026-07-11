@@ -12,6 +12,8 @@ export interface Agent {
   connectorType: ConnectorType;
   /** Absolute path on the Hermes box to `cd` into before running this agent (see /folders). Hermes-only. */
   workspaceFolder: string | null;
+  /** Model id to use for this agent (e.g. "oc/big-pickle" for 9router, or a Hermes -m value). */
+  model: string | null;
   positionX: number;
   positionY: number;
   color: string | null;

@@ -13,6 +13,7 @@ import {
   Play,
   Plus,
   Trash2,
+  Sparkles,
   Upload,
   Workflow,
   Zap,
@@ -24,6 +25,10 @@ import { useRunStore } from "@/lib/stores/run-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { RunConsolePanel } from "@/components/run/run-console-panel";
 import { CreateAgentModal, type CreateAgentValues } from "@/components/agents/create-agent-modal";
+import {
+  SmartAgentMakerModal,
+  type SmartCreateValues,
+} from "@/components/agents/smart-agent-maker-modal";
 import type {
   Agent,
   ConditionStepConfig,
@@ -110,6 +115,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
   const [runningAgentId, setRunningAgentId] = useState<string | null>(null);
   const [showConsole, setShowConsole] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showSmartModal, setShowSmartModal] = useState(false);
   const [consoleLabels, setConsoleLabels] = useState<Record<string, string>>({});
   const pushToast = useToastStore((state) => state.push);
   const runStatus = useRunStore((state) => state.status);
@@ -157,6 +163,20 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
       router.push(`/agents/${agent.id}/pipeline`);
     },
     [createRootNode, previews.length, router],
+  );
+
+  const handleSmartCreate = useCallback(
+    async (values: SmartCreateValues) => {
+      const result = await apiFetch<AgentPreview>("/api/agents/smart-create", {
+        method: "POST",
+        body: JSON.stringify(values),
+      });
+      setPreviews((current) => [...current, result]);
+      setShowSmartModal(false);
+      pushToast(`${result.agent.name} created by Hermes.`, "info");
+      router.push(`/agents/${result.agent.id}/pipeline`);
+    },
+    [pushToast, router],
   );
 
   const handleImport = useCallback(
@@ -319,6 +339,14 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
           </button>
           <button
             type="button"
+            onClick={() => setShowSmartModal(true)}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3.5 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
+          >
+            <Sparkles size={16} />
+            Smart Maker
+          </button>
+          <button
+            type="button"
             onClick={() => setShowCreateModal(true)}
             className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-500"
           >
@@ -348,15 +376,23 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
             </span>
             <h2 className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">No agents yet</h2>
             <p className="mt-1 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-              Create a new agent or import an AgentOS JSON file to get started.
+              Create a new agent, describe one with Smart Maker, or import an AgentOS JSON file.
             </p>
-            <div className="mt-5 flex gap-2">
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 Import JSON
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSmartModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-300"
+              >
+                <Sparkles size={15} />
+                Smart Maker
               </button>
               <button
                 type="button"
@@ -502,6 +538,10 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreate}
         />
+      )}
+
+      {showSmartModal && (
+        <SmartAgentMakerModal onClose={() => setShowSmartModal(false)} onCreate={handleSmartCreate} />
       )}
     </div>
   );

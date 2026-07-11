@@ -44,6 +44,7 @@ export interface SerializedAgent {
     description: string | null;
     connectorType: ConnectorType;
     workspaceFolder: string | null;
+    model: string | null;
     color: string | null;
   };
   pipeline: {
@@ -123,6 +124,7 @@ export function serializeAgent(agent: Agent, nodes: GraphNode[], edges: GraphEdg
       description: agent.description,
       connectorType: agent.connectorType,
       workspaceFolder: agent.workspaceFolder,
+      model: agent.model,
       color: agent.color,
     },
     pipeline: {
@@ -162,6 +164,7 @@ export function parseAgent(text: string, fallbackName = "Imported agent"): Seria
         description: null,
         connectorType: "mock",
         workspaceFolder: null,
+        model: null,
         color: null,
       },
       pipeline: { nodes: pipeline.nodes, edges: pipeline.edges },
@@ -187,8 +190,6 @@ export function parseAgent(text: string, fallbackName = "Imported agent"): Seria
       edges: pipeline.edges,
     }),
   );
-  const connectorType = metadata.connectorType === "hermes" ? "hermes" : "mock";
-
   return {
     app: "agentos",
     version: 1,
@@ -198,12 +199,23 @@ export function parseAgent(text: string, fallbackName = "Imported agent"): Seria
       name: metadata.name,
       role: typeof metadata.role === "string" ? metadata.role : null,
       description: typeof metadata.description === "string" ? metadata.description : null,
-      connectorType,
+      connectorType: parseConnectorType(metadata.connectorType),
       workspaceFolder: typeof metadata.workspaceFolder === "string" ? metadata.workspaceFolder : null,
+      model: typeof metadata.model === "string" ? metadata.model : null,
       color: typeof metadata.color === "string" ? metadata.color : null,
     },
     pipeline: { nodes: workflow.nodes, edges: workflow.edges },
   };
+}
+
+/** Same validation as `parseAgent`, but for an already-parsed object (e.g. Smart Maker output). */
+export function parseAgentObject(raw: unknown, fallbackName = "Imported agent"): SerializedAgent {
+  return parseAgent(JSON.stringify(raw), fallbackName);
+}
+
+function parseConnectorType(value: unknown): ConnectorType {
+  if (value === "hermes" || value === "9router" || value === "mock") return value;
+  return "mock";
 }
 
 /** Trigger a browser download of `data` as a pretty-printed JSON file. */

@@ -30,7 +30,7 @@ const STATUS_META: Record<
   error: { label: "Error", dot: "bg-red-500", text: "text-red-600 dark:text-red-400", icon: XCircle },
 };
 
-function StatusChip({ status }: { status: RunStatus }) {
+export function StatusChip({ status }: { status: RunStatus }) {
   const meta = STATUS_META[status];
   const Icon = meta.icon;
   return (

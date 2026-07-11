@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
+import { listAgents } from "@/lib/db/queries/agents";
 import { listNodes } from "@/lib/db/queries/nodes";
-import { createRun } from "@/lib/db/queries/runs";
+import { createRun, listRuns } from "@/lib/db/queries/runs";
+import { labelForGraph } from "@/lib/dashboard";
+
+export async function GET(request: Request) {
+  const limit = Number(new URL(request.url).searchParams.get("limit") ?? 200);
+  const runs = listRuns(limit);
+  const agentNameById = new Map(listAgents().map((a) => [a.id, a.name]));
+  return NextResponse.json(
+    runs.map((run) => ({ ...run, label: labelForGraph(run.graphId, agentNameById) })),
+  );
+}
 
 export async function POST(request: Request) {
   const body = await request.json();

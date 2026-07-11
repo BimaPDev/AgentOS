@@ -17,3 +17,9 @@ export function getConnector(connectorType: ConnectorType, mockOptions?: MockCon
       return hermesConnector;
   }
 }
+
+/** Same singleton as `getConnector("hermes")`, typed concretely for admin/status endpoints that need `runCommand`. */
+export function getHermesConnector(): HermesConnector {
+  if (!hermesConnector) hermesConnector = new HermesConnector();
+  return hermesConnector;
+}

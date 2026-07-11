@@ -1,11 +1,15 @@
+import { getMcpServers } from "@/lib/hermes-admin";
 import { AppShell } from "@/components/layout/app-shell";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
-import { StubPage } from "@/components/layout/stub-page";
+import { McpClient } from "@/components/mcp/mcp-client";
 
-export default function McpPage() {
+export const dynamic = "force-dynamic";
+
+export default async function McpPage() {
+  const initial = await getMcpServers();
   return (
     <AppShell breadcrumb={<Breadcrumbs items={[{ label: "MCP" }]} />}>
-      <StubPage title="MCP" description="Coming soon — connected MCP servers and their tools will appear here." />
+      <McpClient initial={initial} />
     </AppShell>
   );
 }

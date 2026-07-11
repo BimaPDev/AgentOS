@@ -95,6 +95,27 @@ export function listRunLogs(runId: string): RunLog[] {
   return db.select().from(runLogs).where(eq(runLogs.runId, runId)).all().map(toRunLog);
 }
 
+/** Most recent log lines across all runs, newest first, with the owning run's graphId for context. */
+export function listRecentRunLogs(limit = 300): (RunLog & { graphId: string })[] {
+  ensureMigrated();
+  return db
+    .select({
+      id: runLogs.id,
+      runId: runLogs.runId,
+      nodeId: runLogs.nodeId,
+      ts: runLogs.ts,
+      level: runLogs.level,
+      message: runLogs.message,
+      graphId: runs.graphId,
+    })
+    .from(runLogs)
+    .innerJoin(runs, eq(runLogs.runId, runs.id))
+    .orderBy(desc(runLogs.ts))
+    .limit(limit)
+    .all()
+    .map((row) => ({ ...toRunLog(row), graphId: row.graphId }));
+}
+
 export function appendRunLog(
   runId: string,
   message: string,

@@ -40,7 +40,7 @@ export interface DashboardData {
 
 const RESPONSE_SNIPPET_MAX = 160;
 
-function labelForGraph(graphId: string, agentNameById: Map<string, string>): string {
+export function labelForGraph(graphId: string, agentNameById: Map<string, string>): string {
   if (graphId === ROOT_GRAPH_ID) return "Orchestration graph";
   const agentName = agentNameById.get(graphId);
   return agentName ? `${agentName} · pipeline` : "Pipeline";

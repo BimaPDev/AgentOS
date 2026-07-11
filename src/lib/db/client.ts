@@ -6,7 +6,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import * as schema from "./schema";
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "agentos.db");
+export const DB_PATH = path.join(DATA_DIR, "agentos.db");
 const MIGRATIONS_FOLDER = path.join(process.cwd(), "src", "lib", "db", "migrations");
 
 declare global {

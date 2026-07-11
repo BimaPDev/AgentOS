@@ -1,14 +1,15 @@
+import { getSkillsList } from "@/lib/hermes-admin";
 import { AppShell } from "@/components/layout/app-shell";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
-import { StubPage } from "@/components/layout/stub-page";
+import { SkillsClient } from "@/components/skills/skills-client";
 
-export default function SkillsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SkillsPage() {
+  const initial = await getSkillsList();
   return (
     <AppShell breadcrumb={<Breadcrumbs items={[{ label: "Skills" }]} />}>
-      <StubPage
-        title="Skills"
-        description="Coming soon — installable tool/skill packages for agents will appear here."
-      />
+      <SkillsClient initial={initial} />
     </AppShell>
   );
 }

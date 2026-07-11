@@ -27,7 +27,7 @@ export interface HermesConnectorOptions {
   hermesBin?: string;
 }
 
-interface ResolvedHermesConnectorOptions extends Required<HermesConnectorOptions> {}
+type ResolvedHermesConnectorOptions = Required<HermesConnectorOptions>;
 
 function resolveOptions(options: HermesConnectorOptions): ResolvedHermesConnectorOptions {
   return {
@@ -48,10 +48,18 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-interface ExecResult {
+export interface ExecResult {
   stdout: string;
   stderr: string;
   code: number;
+}
+
+export interface HermesConnectionInfo {
+  host: string;
+  port: number;
+  username: string;
+  privateKeyPath: string;
+  hermesBin: string;
 }
 
 export class HermesConnector implements AgentConnector {
@@ -168,6 +176,23 @@ export class HermesConnector implements AgentConnector {
     }
 
     yield { type: "done" };
+  }
+
+  /** Non-secret connection settings, for display on admin/status pages. */
+  getConnectionInfo(): HermesConnectionInfo {
+    return { ...this.config };
+  }
+
+  /**
+   * Runs an arbitrary `hermes <args...>` subcommand (e.g. `["mcp", "list"]`)
+   * and returns its raw output. For admin/status pages, not the chat path —
+   * those commands don't touch the LLM so they work even without a
+   * configured provider.
+   */
+  async runCommand(args: string[], signal?: AbortSignal): Promise<ExecResult> {
+    await this.connect();
+    const command = [this.config.hermesBin, ...args.map(shellQuote)].join(" ");
+    return this.exec(command, signal);
   }
 
   private exec(command: string, signal?: AbortSignal): Promise<ExecResult> {

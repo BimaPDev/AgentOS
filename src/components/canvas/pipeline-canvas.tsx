@@ -4,6 +4,7 @@ import "@xyflow/react/dist/style.css";
 import { useState } from "react";
 import {
   Background,
+  ConnectionLineType,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -64,6 +65,8 @@ function PipelineCanvasInner(props: PipelineCanvasProps) {
           window.sessionStorage.setItem(props.viewportStorageKey, JSON.stringify(viewport));
         }
       }}
+      defaultEdgeOptions={{ type: "default", style: { strokeWidth: 2 } }}
+      connectionLineType={ConnectionLineType.Bezier}
       defaultViewport={initialViewport}
       fitView={!initialViewport}
       className="bg-zinc-50 dark:bg-zinc-950"

@@ -7,7 +7,10 @@ import {
   type Node,
   type NodeChange,
 } from "@xyflow/react";
-import type { Agent, GraphNode, RunStatus } from "@/lib/types/domain";
+import type { Agent, GraphNode, NodeConfig, RunStatus } from "@/lib/types/domain";
+
+/** Persists an inline node edit to the backend. Registered by the active canvas client. */
+export type NodePersister = (nodeId: string, patch: { config?: NodeConfig; label?: string | null }) => void;
 
 export interface AgentNodeData extends Record<string, unknown> {
   kind: "agent";
@@ -46,6 +49,12 @@ interface CanvasState {
   updateNodeData: (id: string, patch: Partial<AgentNodeData> | Partial<StepNodeData>) => void;
   setNodeStatus: (id: string, status: RunStatus) => void;
   resetAllStatuses: () => void;
+
+  /** Inline editing: mutate a node's config/label and persist via the registered persister. */
+  persistNode: NodePersister | undefined;
+  setPersistNode: (fn: NodePersister | undefined) => void;
+  setNodeConfig: (id: string, config: NodeConfig) => void;
+  setNodeLabel: (id: string, label: string) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -91,4 +100,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({
       nodes: get().nodes.map((n) => ({ ...n, data: { ...n.data, status: "idle" as RunStatus } })),
     }),
+
+  persistNode: undefined,
+  setPersistNode: (fn) => set({ persistNode: fn }),
+
+  setNodeConfig: (id, config) => {
+    set({
+      nodes: get().nodes.map((n) =>
+        n.id === id
+          ? { ...n, data: { ...n.data, graphNode: { ...n.data.graphNode, config } } as CanvasNodeData }
+          : n,
+      ),
+    });
+    get().persistNode?.(id, { config });
+  },
+
+  setNodeLabel: (id, label) => {
+    set({
+      nodes: get().nodes.map((n) =>
+        n.id === id
+          ? { ...n, data: { ...n.data, graphNode: { ...n.data.graphNode, label } } as CanvasNodeData }
+          : n,
+      ),
+    });
+    get().persistNode?.(id, { label });
+  },
 }));

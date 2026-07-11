@@ -83,12 +83,12 @@ export function AgentsGraphClient({
 
   const handleAdd = useCallback(async () => {
     try {
-      const index = nodes.length + 1;
+      const count = nodes.length;
       const agent = await apiFetch<Agent>("/api/agents", {
         method: "POST",
-        body: JSON.stringify({ name: `Agent ${index}` }),
+        body: JSON.stringify({ name: `Agent ${count + 1}` }),
       });
-      const position = { x: 120 + (index % 5) * 220, y: 120 + Math.floor(index / 5) * 160 };
+      const position = { x: 80 + (count % 4) * 300, y: 100 + Math.floor(count / 4) * 200 };
       const node = await apiFetch<GraphNode>(`/api/graphs/${ROOT_GRAPH_ID}/nodes`, {
         method: "POST",
         body: JSON.stringify({

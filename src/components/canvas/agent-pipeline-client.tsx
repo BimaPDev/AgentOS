@@ -1,16 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Connection, Edge, NodeTypes } from "@xyflow/react";
 import { apiFetch } from "@/lib/utils/fetcher";
 import { useCanvasStore, type CanvasNode, type StepNodeData } from "@/lib/stores/canvas-store";
 import { useRunStore } from "@/lib/stores/run-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { GraphCycleError, runGraph, type RunEngineNode } from "@/lib/execution/run-engine";
+import { downloadJson, parseWorkflow, serializeWorkflow } from "@/lib/config-io";
 import { PipelineCanvas } from "@/components/canvas/pipeline-canvas";
 import { StepNode } from "@/components/canvas/step-node";
 import { CanvasToolbar, ToolbarButton } from "@/components/canvas/canvas-toolbar";
-import { NodeInspectorPanel } from "@/components/inspector/node-inspector-panel";
 import { RunButton } from "@/components/run/run-controls";
 import { RunConsolePanel } from "@/components/run/run-console-panel";
 import type {
@@ -84,10 +84,13 @@ export function AgentPipelineClient({
   const addNode = useCanvasStore((s) => s.addNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const addEdge = useCanvasStore((s) => s.addEdge);
-  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const setCanvasNodeStatus = useCanvasStore((s) => s.setNodeStatus);
   const resetAllStatuses = useCanvasStore((s) => s.resetAllStatuses);
+  const setPersistNode = useCanvasStore((s) => s.setPersistNode);
   const edges = useCanvasStore((s) => s.edges);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const persistTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const runStatus = useRunStore((s) => s.status);
   const startRunStore = useRunStore((s) => s.startRun);
@@ -115,16 +118,38 @@ export function AgentPipelineClient({
     return () => useCanvasStore.getState().reset();
   }, [agentId, initialNodes, initialEdges, initGraph]);
 
-  const selectedNode = useMemo(
-    () => nodes.find((n) => n.id === selectedNodeId) ?? null,
-    [nodes, selectedNodeId],
-  );
+  // Register a per-node debounced persister so inline widget edits save to the backend.
+  useEffect(() => {
+    const timers = persistTimers.current;
+    setPersistNode((nodeId, patch) => {
+      const prev = timers.get(nodeId);
+      if (prev) clearTimeout(prev);
+      timers.set(
+        nodeId,
+        setTimeout(() => {
+          timers.delete(nodeId);
+          apiFetch(`/api/graphs/${agentId}/nodes/${nodeId}`, {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+          }).catch((err) => {
+            console.error("Failed to save step", err);
+            pushToast("Failed to save step.");
+          });
+        }, 500),
+      );
+    });
+    return () => {
+      setPersistNode(undefined);
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, [agentId, setPersistNode, pushToast]);
 
   const handleAddStep = useCallback(
     async (type: Exclude<NodeType, "agent">) => {
       try {
-        const index = nodes.length + 1;
-        const position = { x: 120 + (index % 5) * 220, y: 120 + Math.floor(index / 5) * 160 };
+        const index = nodes.length;
+        const position = { x: 80 + (index % 4) * 320, y: 100 + Math.floor(index / 4) * 280 };
         const config = defaultConfigFor(type);
         const node = await apiFetch<GraphNode>(`/api/graphs/${agentId}/nodes`, {
           method: "POST",
@@ -218,20 +243,71 @@ export function AgentPipelineClient({
     });
   }, [selectedNodeId, nodes, removeNode, persistNodeDeletion, pushToast]);
 
-  const handleStepSave = useCallback(
-    async (nodeId: string, patch: { label?: string | null; config: NodeConfig }) => {
+  const handleExport = useCallback(() => {
+    const workflow = serializeWorkflow(nodes, edges);
+    downloadJson(workflow, `agentos-pipeline-${agentId.slice(0, 8)}.json`);
+  }, [nodes, edges, agentId]);
+
+  const handleImportFile = useCallback(
+    async (file: File) => {
+      let workflow;
       try {
-        const updated = await apiFetch<GraphNode>(`/api/graphs/${agentId}/nodes/${nodeId}`, {
-          method: "PATCH",
-          body: JSON.stringify(patch),
-        });
-        updateNodeData(nodeId, { graphNode: updated });
+        workflow = parseWorkflow(await file.text());
       } catch (err) {
-        console.error("Failed to save step", err);
-        pushToast("Failed to save step.");
+        pushToast(err instanceof Error ? err.message : "Invalid config file.");
+        return;
+      }
+      if (nodes.length > 0 && typeof window !== "undefined") {
+        if (!window.confirm("Replace the current pipeline with the imported config? This cannot be undone.")) {
+          return;
+        }
+      }
+      try {
+        // Clear existing nodes (edges cascade in the DB).
+        for (const n of nodes) {
+          await apiFetch(`/api/graphs/${agentId}/nodes/${n.id}`, { method: "DELETE" });
+        }
+        // Recreate imported nodes, mapping old keys → freshly assigned ids.
+        const idMap = new Map<string, string>();
+        const newNodes: CanvasNode[] = [];
+        for (const sn of workflow.nodes) {
+          const created = await apiFetch<GraphNode>(`/api/graphs/${agentId}/nodes`, {
+            method: "POST",
+            body: JSON.stringify({
+              type: sn.type,
+              positionX: sn.position.x,
+              positionY: sn.position.y,
+              label: sn.label,
+              config: sn.config,
+            }),
+          });
+          idMap.set(sn.key, created.id);
+          newNodes.push({
+            id: created.id,
+            type: "step",
+            position: sn.position,
+            data: { kind: "step", graphNode: created },
+          });
+        }
+        const newEdges: Edge[] = [];
+        for (const se of workflow.edges) {
+          const source = idMap.get(se.source);
+          const target = idMap.get(se.target);
+          if (!source || !target) continue;
+          const created = await apiFetch<GraphEdge>(`/api/graphs/${agentId}/edges`, {
+            method: "POST",
+            body: JSON.stringify({ sourceNodeId: source, targetNodeId: target }),
+          });
+          newEdges.push({ id: created.id, source: created.sourceNodeId, target: created.targetNodeId });
+        }
+        initGraph({ graphId: agentId, nodes: newNodes, edges: newEdges });
+        pushToast("Config loaded.", "info");
+      } catch (err) {
+        console.error("Failed to import config", err);
+        pushToast("Failed to load config.");
       }
     },
-    [agentId, updateNodeData, pushToast],
+    [agentId, nodes, initGraph, pushToast],
   );
 
   const handleRun = useCallback(async () => {
@@ -323,16 +399,26 @@ export function AgentPipelineClient({
             {label}
           </ToolbarButton>
         ))}
+        <span className="mx-0.5 h-5 w-px bg-zinc-300 dark:bg-zinc-700" />
+        <ToolbarButton variant="secondary" onClick={handleExport}>
+          Save config
+        </ToolbarButton>
+        <ToolbarButton variant="secondary" onClick={() => fileInputRef.current?.click()}>
+          Load config
+        </ToolbarButton>
         <RunButton onRun={() => void handleRun()} isRunning={runStatus === "running"} disabled={nodes.length === 0} />
       </CanvasToolbar>
-      {selectedNode && (
-        <NodeInspectorPanel
-          key={selectedNode.id}
-          node={selectedNode}
-          onSaveStep={handleStepSave}
-          onClose={() => selectNode(null)}
-        />
-      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleImportFile(file);
+          e.target.value = "";
+        }}
+      />
       {showConsole && <RunConsolePanel nodeLabelById={nodeLabelById} onClose={() => setShowConsole(false)} />}
     </div>
   );

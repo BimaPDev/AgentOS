@@ -11,13 +11,15 @@ import type {
 
 /**
  * Talks to a real Hermes Agent instance over SSH: shells out to
- * `hermes chat -q "<prompt>" -Q --source tool` on the remote box and reports
- * the response as a single "streamed" chunk (Hermes's `-Q` mode returns the
- * full response in one shot to stdout — session id / errors go to stderr, so
+ * `hermes chat -q "<prompt>" -Q --yolo --source tool` on the remote box and
+ * reports the response as a single "streamed" chunk (Hermes's `-Q` mode returns
+ * the full response in one shot to stdout — session id / errors go to stderr, so
  * stdout is always exactly the model's answer, confirmed from cli.py's quiet
- * single-query path). No conversation continuity between runs: each node
- * invocation is a fresh Hermes session, matching how the run engine already
- * has no persistent per-node state.
+ * single-query path). `--yolo` is required so tool/skill calls don't hang waiting
+ * for an interactive approval that never comes in non-TTY quiet mode.
+ * No conversation continuity between runs: each node invocation is a fresh
+ * Hermes session, matching how the run engine already has no persistent
+ * per-node state.
  */
 export interface HermesConnectorOptions {
   host?: string;
@@ -151,7 +153,16 @@ export class HermesConnector implements AgentConnector {
         ? options.context.workspaceFolder
         : "/home/hermes";
     const model = options.context?.model;
-    const chatArgs = [this.config.hermesBin, "chat", "-q", shellQuote(prompt), "-Q", "--source", "tool"];
+    const chatArgs = [
+      this.config.hermesBin,
+      "chat",
+      "-q",
+      shellQuote(prompt),
+      "-Q",
+      "--yolo",
+      "--source",
+      "tool",
+    ];
     if (typeof model === "string" && model) chatArgs.push("-m", shellQuote(model));
     const chatCommand = chatArgs.join(" ");
     const command = `cd ${shellQuote(workspaceFolder)} && ${chatCommand}`;

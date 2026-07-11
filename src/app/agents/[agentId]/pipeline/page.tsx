@@ -32,6 +32,7 @@ export default async function AgentPipelinePage({ params }: PageProps) {
         agentId={agentId}
         connectorType={agent.connectorType}
         workspaceFolder={agent.workspaceFolder}
+        model={agent.model}
         initialNodes={nodes}
         initialEdges={edges}
       />

@@ -286,6 +286,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
           id: node.id,
           connectorType: preview.agent.connectorType,
           workspaceFolder: preview.agent.workspaceFolder,
+          model: preview.agent.model,
           nodeType: node.type,
           seedPrompt: seedPrompt(node),
           toolName: toolConfig?.toolName,

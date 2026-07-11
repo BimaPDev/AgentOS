@@ -13,6 +13,8 @@ export interface RunEngineNode {
   toolArgs?: Record<string, unknown>;
   /** Absolute path on the Hermes box to run this node from (see /folders). Ignored by other connectors. */
   workspaceFolder?: string | null;
+  /** Model id to use for this node's connector (9router model id, or a Hermes -m value). */
+  model?: string | null;
 }
 
 export interface RunEngineEdge {
@@ -164,6 +166,7 @@ export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphPar
         toolName: node.toolName,
         toolArgs: node.toolArgs,
         workspaceFolder: node.workspaceFolder,
+        model: node.model,
       },
     })) {
       if (chunk.type === "token") {

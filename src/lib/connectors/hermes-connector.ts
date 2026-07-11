@@ -146,15 +146,15 @@ export class HermesConnector implements AgentConnector {
     }
 
     const prompt = options.prompt || "(empty prompt)";
-    const workspaceFolder = options.context?.workspaceFolder;
+    const workspaceFolder =
+      typeof options.context?.workspaceFolder === "string" && options.context.workspaceFolder
+        ? options.context.workspaceFolder
+        : "/home/hermes";
     const model = options.context?.model;
     const chatArgs = [this.config.hermesBin, "chat", "-q", shellQuote(prompt), "-Q", "--source", "tool"];
     if (typeof model === "string" && model) chatArgs.push("-m", shellQuote(model));
     const chatCommand = chatArgs.join(" ");
-    const command =
-      typeof workspaceFolder === "string" && workspaceFolder
-        ? `cd ${shellQuote(workspaceFolder)} && ${chatCommand}`
-        : chatCommand;
+    const command = `cd ${shellQuote(workspaceFolder)} && ${chatCommand}`;
 
     let result: ExecResult;
     try {

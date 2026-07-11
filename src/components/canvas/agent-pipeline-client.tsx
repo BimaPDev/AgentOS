@@ -68,6 +68,7 @@ interface AgentPipelineClientProps {
   agentId: string;
   connectorType: ConnectorType;
   workspaceFolder: string | null;
+  model: string | null;
   initialNodes: GraphNode[];
   initialEdges: GraphEdge[];
 }
@@ -76,6 +77,7 @@ export function AgentPipelineClient({
   agentId,
   connectorType,
   workspaceFolder,
+  model,
   initialNodes,
   initialEdges,
 }: AgentPipelineClientProps) {
@@ -322,6 +324,7 @@ export function AgentPipelineClient({
         id: n.id,
         connectorType,
         workspaceFolder,
+        model,
         nodeType: data.graphNode.type,
         seedPrompt: resolveSeedPrompt(data.graphNode),
         toolName:
@@ -361,6 +364,7 @@ export function AgentPipelineClient({
     agentId,
     connectorType,
     workspaceFolder,
+    model,
     resetAllStatuses,
     startRunStore,
     setRunNodeStatus,

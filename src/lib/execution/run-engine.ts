@@ -1,4 +1,4 @@
-import { getConnector } from "@/lib/connectors";
+import type { StreamChunk } from "@/lib/connectors/types";
 import { apiFetch } from "@/lib/utils/fetcher";
 import { topoSort } from "@/lib/execution/topo-sort";
 import type { ConnectorType, NodeType, Run, RunStatus } from "@/lib/types/domain";
@@ -49,6 +49,53 @@ async function persistLog(runId: string, message: string, level: "info" | "debug
   }).catch(() => {
     // Best-effort: log persistence failures shouldn't abort the run.
   });
+}
+
+/**
+ * Runs a node's prompt via `/api/connectors/execute` (server-side — real
+ * connectors hold credentials/native bindings that must never reach the
+ * browser bundle) and yields the newline-delimited `StreamChunk`s as they
+ * arrive.
+ */
+async function* executeNode(params: {
+  connectorType: ConnectorType;
+  agentId: string;
+  prompt: string;
+  context?: Record<string, unknown>;
+  signal?: AbortSignal;
+}): AsyncGenerator<StreamChunk> {
+  const response = await fetch("/api/connectors/execute", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      connectorType: params.connectorType,
+      agentId: params.agentId,
+      prompt: params.prompt,
+      context: params.context,
+    }),
+    signal: params.signal,
+  });
+
+  if (!response.ok || !response.body) {
+    yield { type: "error", error: `Connector request failed (HTTP ${response.status})` };
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line.trim()) yield JSON.parse(line) as StreamChunk;
+    }
+  }
+  if (buffer.trim()) yield JSON.parse(buffer) as StreamChunk;
 }
 
 async function persistNodeState(
@@ -104,32 +151,14 @@ export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphPar
     }).catch(() => {});
     log(`Running node…`, "info", nodeId);
 
-    let connector;
-    try {
-      connector = getConnector(node.connectorType);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      callbacks.onNodeStatus(nodeId, "error");
-      log(message, "error", nodeId);
-      persistNodeState(run.id, nodeId, { status: "error", errorText: message, finishedAt: new Date().toISOString() }).catch(
-        () => {},
-      );
-      await apiFetch(`/api/runs/${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "error" }) }).catch(
-        () => {},
-      );
-      return { runId: run.id, status: "error" };
-    }
-
-    await connector.connect();
-    const { requestId } = await connector.sendPrompt({
+    let fullText = "";
+    let errorMessage: string | null = null;
+    for await (const chunk of executeNode({
+      connectorType: node.connectorType,
       agentId: nodeId,
       prompt: inputText,
       context: { nodeType: node.nodeType, toolName: node.toolName, toolArgs: node.toolArgs },
-    });
-
-    let fullText = "";
-    let errorMessage: string | null = null;
-    for await (const chunk of connector.streamResponse(requestId)) {
+    })) {
       if (chunk.type === "token") {
         fullText += chunk.content;
         callbacks.onToken(nodeId, chunk.content);

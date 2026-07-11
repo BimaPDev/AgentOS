@@ -1,7 +1,12 @@
 import "server-only";
 import { getHermesConnector } from "@/lib/connectors";
 import { parseAgentObject, type SerializedAgent } from "@/lib/config-io";
-import { getMcpServers, getSkillsList, listWorkspaceFolders } from "@/lib/hermes-admin";
+import {
+  getMcpServers,
+  getSkillsList,
+  HERMES_WORKSPACES_DIR,
+  listWorkspaceFolders,
+} from "@/lib/hermes-admin";
 import { createAgent, deleteAgent } from "@/lib/db/queries/agents";
 import { createEdge } from "@/lib/db/queries/edges";
 import { createNode } from "@/lib/db/queries/nodes";
@@ -63,7 +68,11 @@ export async function smartCreateAgent(input: SmartCreateInput): Promise<SmartCr
   if (!goal) throw new Error("Describe the agent you want to create.");
 
   const preferredConnector = input.connectorType ?? "hermes";
-  const preferredFolder = input.workspaceFolder ?? null;
+  // Smart Maker always runs under the Hermes workspaces root (repos live inside it).
+  const preferredFolder =
+    preferredConnector === "hermes"
+      ? (input.workspaceFolder?.trim() || HERMES_WORKSPACES_DIR)
+      : null;
 
   const [skills, mcp, folders] = await Promise.all([
     getSkillsList(),
@@ -101,8 +110,8 @@ export async function smartCreateAgent(input: SmartCreateInput): Promise<SmartCr
     "- Use 2 to 6 pipeline steps connected as a simple left-to-right DAG (no cycles).",
     `- Prefer connectorType "${preferredConnector}".`,
     preferredFolder
-      ? `- Set workspaceFolder to "${preferredFolder}" unless the goal clearly needs a different installed folder.`
-      : "- If a workspace folder clearly matches the goal, set workspaceFolder to that folder's path; otherwise null.",
+      ? `- Always set workspaceFolder to "${preferredFolder}" (the Hermes Workspace root). Subfolders like career-ops are available inside it.`
+      : "- Set workspaceFolder to null.",
     "- Space nodes horizontally: x = 80 + index*280, y = 120.",
     "- Node keys must be unique short ids (n1, n2, …). Edges reference those keys.",
     "- For tool-call steps, prefer real skill/MCP names from the inventory when relevant.",
@@ -127,11 +136,9 @@ export async function smartCreateAgent(input: SmartCreateInput): Promise<SmartCr
   }
 
   const draft = parseGeneratedAgent(rawText, goal);
-  // Honor explicit UI choices over whatever Hermes guessed.
+  // Honor explicit UI / Smart Maker defaults over whatever Hermes guessed.
   if (input.connectorType) draft.agent.connectorType = input.connectorType;
-  if (input.workspaceFolder !== undefined) {
-    draft.agent.workspaceFolder = input.workspaceFolder;
-  }
+  draft.agent.workspaceFolder = preferredFolder;
   if (!draft.agent.description) draft.agent.description = goal.slice(0, 240);
 
   return persistSerializedAgent(draft, input.rootIndex ?? 0);

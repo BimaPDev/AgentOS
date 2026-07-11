@@ -169,7 +169,9 @@ export async function getSkillsList(): Promise<SkillsListResult> {
  * that become the agent's cwd (see HermesConnector's `workspaceFolder`
  * context — `cd <folder> && hermes chat ...`).
  */
-const WORKSPACES_DIR = process.env.HERMES_WORKSPACES_DIR ?? "/home/hermes/workspaces";
+export const HERMES_WORKSPACES_DIR =
+  process.env.HERMES_WORKSPACES_DIR ?? "/home/hermes/workspaces";
+const WORKSPACES_DIR = HERMES_WORKSPACES_DIR;
 const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const GIT_URL_RE = /^(https?:\/\/\S+|git@\S+:\S+|ssh:\/\/\S+)$/;
 

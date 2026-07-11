@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Loader2, Sparkles, X } from "lucide-react";
-import { apiFetch } from "@/lib/utils/fetcher";
-import type { WorkspaceFoldersResult } from "@/lib/hermes-admin";
 import type { ConnectorType } from "@/lib/types/domain";
 
 export interface SmartCreateValues {
   prompt: string;
   connectorType: ConnectorType;
+  /** Always the Hermes workspaces root when connector is hermes. */
   workspaceFolder: string | null;
 }
 
@@ -17,25 +16,14 @@ interface SmartAgentMakerModalProps {
   onCreate: (values: SmartCreateValues) => Promise<void>;
 }
 
+/** Client-side default; server also forces HERMES_WORKSPACES_DIR for hermes. */
+const WORKSPACE_ROOT = "/home/hermes/workspaces";
+
 export function SmartAgentMakerModal({ onClose, onCreate }: SmartAgentMakerModalProps) {
   const [prompt, setPrompt] = useState("");
   const [connectorType, setConnectorType] = useState<ConnectorType>("hermes");
-  const [workspaceFolder, setWorkspaceFolder] = useState("");
-  const [folders, setFolders] = useState<WorkspaceFoldersResult["folders"] | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const foldersLoading = connectorType === "hermes" && folders === null;
-
-  useEffect(() => {
-    if (connectorType !== "hermes" || folders !== null) return;
-    let cancelled = false;
-    apiFetch<WorkspaceFoldersResult>("/api/hermes/folders")
-      .then((res) => !cancelled && setFolders(res.folders))
-      .catch(() => !cancelled && setFolders([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [connectorType, folders]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +34,7 @@ export function SmartAgentMakerModal({ onClose, onCreate }: SmartAgentMakerModal
       await onCreate({
         prompt: prompt.trim(),
         connectorType,
-        workspaceFolder: connectorType === "hermes" && workspaceFolder ? workspaceFolder : null,
+        workspaceFolder: connectorType === "hermes" ? WORKSPACE_ROOT : null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -98,7 +86,7 @@ export function SmartAgentMakerModal({ onClose, onCreate }: SmartAgentMakerModal
 
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Run with connector
+              Run pipeline with
             </label>
             <select
               value={connectorType}
@@ -106,35 +94,20 @@ export function SmartAgentMakerModal({ onClose, onCreate }: SmartAgentMakerModal
               onChange={(e) => setConnectorType(e.target.value as ConnectorType)}
               className="w-full rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
             >
-              <option value="hermes">Hermes</option>
-              <option value="9router">9Router</option>
-              <option value="mock">Mock</option>
+              <option value="hermes">Hermes (uses 9Router for models)</option>
+              <option value="mock">Mock (dry run)</option>
             </select>
           </div>
 
           {connectorType === "hermes" && (
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Prefer workspace folder (optional)
+                Workspace
               </label>
-              <select
-                value={workspaceFolder}
-                onChange={(e) => setWorkspaceFolder(e.target.value)}
-                disabled={foldersLoading || submitting}
-                className="w-full rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
-              >
-                <option value="">Let Hermes choose (or none)</option>
-                {(folders ?? []).map((f) => (
-                  <option key={f.name} value={f.path}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-              {foldersLoading && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-zinc-400">
-                  <Loader2 size={11} className="animate-spin" /> Loading folders…
-                </p>
-              )}
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+                Workspace
+                <span className="ml-2 font-mono text-[11px] text-zinc-400">{WORKSPACE_ROOT}</span>
+              </div>
             </div>
           )}
 

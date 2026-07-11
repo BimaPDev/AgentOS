@@ -43,6 +43,7 @@ export interface SerializedAgent {
     role: string | null;
     description: string | null;
     connectorType: ConnectorType;
+    workspaceFolder: string | null;
     color: string | null;
   };
   pipeline: {
@@ -121,6 +122,7 @@ export function serializeAgent(agent: Agent, nodes: GraphNode[], edges: GraphEdg
       role: agent.role,
       description: agent.description,
       connectorType: agent.connectorType,
+      workspaceFolder: agent.workspaceFolder,
       color: agent.color,
     },
     pipeline: {
@@ -159,6 +161,7 @@ export function parseAgent(text: string, fallbackName = "Imported agent"): Seria
         role: null,
         description: null,
         connectorType: "mock",
+        workspaceFolder: null,
         color: null,
       },
       pipeline: { nodes: pipeline.nodes, edges: pipeline.edges },
@@ -196,6 +199,7 @@ export function parseAgent(text: string, fallbackName = "Imported agent"): Seria
       role: typeof metadata.role === "string" ? metadata.role : null,
       description: typeof metadata.description === "string" ? metadata.description : null,
       connectorType,
+      workspaceFolder: typeof metadata.workspaceFolder === "string" ? metadata.workspaceFolder : null,
       color: typeof metadata.color === "string" ? metadata.color : null,
     },
     pipeline: { nodes: workflow.nodes, edges: workflow.edges },

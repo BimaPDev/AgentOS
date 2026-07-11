@@ -8,6 +8,13 @@
       "when": 1783735247496,
       "tag": "0000_amused_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783761214372,
+      "tag": "0001_special_mephisto",
+      "breakpoints": true
     }
   ]
 }

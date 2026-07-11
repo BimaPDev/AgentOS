@@ -7,6 +7,7 @@ import {
   Clock3,
   Download,
   ExternalLink,
+  FolderGit2,
   Loader2,
   MoreHorizontal,
   Play,
@@ -22,6 +23,7 @@ import { runGraph, type RunEngineNode } from "@/lib/execution/run-engine";
 import { useRunStore } from "@/lib/stores/run-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { RunConsolePanel } from "@/components/run/run-console-panel";
+import { CreateAgentModal, type CreateAgentValues } from "@/components/agents/create-agent-modal";
 import type {
   Agent,
   ConditionStepConfig,
@@ -107,6 +109,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
   const [isImporting, setIsImporting] = useState(false);
   const [runningAgentId, setRunningAgentId] = useState<string | null>(null);
   const [showConsole, setShowConsole] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [consoleLabels, setConsoleLabels] = useState<Record<string, string>>({});
   const pushToast = useToastStore((state) => state.push);
   const runStatus = useRunStore((state) => state.status);
@@ -142,20 +145,19 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
     });
   }, []);
 
-  const handleCreate = useCallback(async () => {
-    try {
+  const handleCreate = useCallback(
+    async (values: CreateAgentValues) => {
       const agent = await apiFetch<Agent>("/api/agents", {
         method: "POST",
-        body: JSON.stringify({ name: `Agent ${previews.length + 1}` }),
+        body: JSON.stringify(values),
       });
       await createRootNode(agent, previews.length);
       setPreviews((current) => [...current, { agent, nodes: [], edges: [] }]);
+      setShowCreateModal(false);
       router.push(`/agents/${agent.id}/pipeline`);
-    } catch (error) {
-      console.error("Failed to create agent", error);
-      pushToast("Failed to create agent.");
-    }
-  }, [createRootNode, previews.length, pushToast, router]);
+    },
+    [createRootNode, previews.length, router],
+  );
 
   const handleImport = useCallback(
     async (file: File) => {
@@ -263,6 +265,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
         return {
           id: node.id,
           connectorType: preview.agent.connectorType,
+          workspaceFolder: preview.agent.workspaceFolder,
           nodeType: node.type,
           seedPrompt: seedPrompt(node),
           toolName: toolConfig?.toolName,
@@ -316,7 +319,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
           </button>
           <button
             type="button"
-            onClick={() => void handleCreate()}
+            onClick={() => setShowCreateModal(true)}
             className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-500"
           >
             <Plus size={16} />
@@ -357,7 +360,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
               </button>
               <button
                 type="button"
-                onClick={() => void handleCreate()}
+                onClick={() => setShowCreateModal(true)}
                 className="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-500"
               >
                 Create agent
@@ -461,6 +464,15 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
                       <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-medium dark:bg-zinc-800">
                         {agent.connectorType}
                       </span>
+                      {agent.workspaceFolder && (
+                        <span
+                          className="inline-flex items-center gap-1 truncate rounded-full bg-zinc-100 px-2 py-0.5 font-medium dark:bg-zinc-800"
+                          title={agent.workspaceFolder}
+                        >
+                          <FolderGit2 size={11} />
+                          {agent.workspaceFolder.split("/").pop()}
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -483,6 +495,14 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
       </div>
 
       {showConsole && <RunConsolePanel nodeLabelById={consoleLabels} onClose={() => setShowConsole(false)} />}
+
+      {showCreateModal && (
+        <CreateAgentModal
+          defaultName={`Agent ${previews.length + 1}`}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={handleCreate}
+        />
+      )}
     </div>
   );
 }

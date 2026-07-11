@@ -11,6 +11,8 @@ export interface RunEngineNode {
   seedPrompt: string;
   toolName?: string;
   toolArgs?: Record<string, unknown>;
+  /** Absolute path on the Hermes box to run this node from (see /folders). Ignored by other connectors. */
+  workspaceFolder?: string | null;
 }
 
 export interface RunEngineEdge {
@@ -157,7 +159,12 @@ export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphPar
       connectorType: node.connectorType,
       agentId: nodeId,
       prompt: inputText,
-      context: { nodeType: node.nodeType, toolName: node.toolName, toolArgs: node.toolArgs },
+      context: {
+        nodeType: node.nodeType,
+        toolName: node.toolName,
+        toolArgs: node.toolArgs,
+        workspaceFolder: node.workspaceFolder,
+      },
     })) {
       if (chunk.type === "token") {
         fullText += chunk.content;

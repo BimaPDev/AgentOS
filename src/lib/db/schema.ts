@@ -7,6 +7,7 @@ export const agents = sqliteTable("agents", {
   role: text("role"),
   description: text("description"),
   connectorType: text("connector_type").notNull().default("mock"),
+  workspaceFolder: text("workspace_folder"),
   positionX: real("position_x").notNull().default(0),
   positionY: real("position_y").notNull().default(0),
   color: text("color"),

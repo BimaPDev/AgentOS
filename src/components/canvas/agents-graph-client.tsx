@@ -213,6 +213,7 @@ export function AgentsGraphClient({
       return {
         id: n.id,
         connectorType: agent?.connectorType ?? "mock",
+        workspaceFolder: agent?.workspaceFolder ?? null,
         nodeType: "agent",
         seedPrompt:
           agent?.description ||

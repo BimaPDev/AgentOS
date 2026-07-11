@@ -26,6 +26,7 @@ export function toAgent(row: AgentRow): Agent {
     role: row.role,
     description: row.description,
     connectorType: row.connectorType as ConnectorType,
+    workspaceFolder: row.workspaceFolder,
     positionX: row.positionX,
     positionY: row.positionY,
     color: row.color,

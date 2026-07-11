@@ -1,4 +1,4 @@
-export type ConnectorType = "mock" | "hermes";
+export type ConnectorType = "mock" | "hermes" | "9router";
 
 export type RunStatus = "idle" | "running" | "success" | "error";
 
@@ -10,6 +10,8 @@ export interface Agent {
   role: string | null;
   description: string | null;
   connectorType: ConnectorType;
+  /** Absolute path on the Hermes box to `cd` into before running this agent (see /folders). Hermes-only. */
+  workspaceFolder: string | null;
   positionX: number;
   positionY: number;
   color: string | null;

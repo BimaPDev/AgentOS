@@ -11,6 +11,7 @@ export interface CreateAgentInput {
   role?: string | null;
   description?: string | null;
   connectorType?: ConnectorType;
+  workspaceFolder?: string | null;
   positionX?: number;
   positionY?: number;
   color?: string | null;
@@ -21,6 +22,7 @@ export interface UpdateAgentInput {
   role?: string | null;
   description?: string | null;
   connectorType?: ConnectorType;
+  workspaceFolder?: string | null;
   positionX?: number;
   positionY?: number;
   color?: string | null;
@@ -46,6 +48,7 @@ export function createAgent(input: CreateAgentInput): Agent {
     role: input.role ?? null,
     description: input.description ?? null,
     connectorType: input.connectorType ?? "mock",
+    workspaceFolder: input.workspaceFolder ?? null,
     positionX: input.positionX ?? 0,
     positionY: input.positionY ?? 0,
     color: input.color ?? null,

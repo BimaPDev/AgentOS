@@ -44,7 +44,7 @@ function resolveOptions(options: HermesConnectorOptions): ResolvedHermesConnecto
 }
 
 /** Single-quote a shell argument, escaping embedded single quotes POSIX-style. */
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -146,9 +146,14 @@ export class HermesConnector implements AgentConnector {
     }
 
     const prompt = options.prompt || "(empty prompt)";
-    const command = [this.config.hermesBin, "chat", "-q", shellQuote(prompt), "-Q", "--source", "tool"].join(
+    const workspaceFolder = options.context?.workspaceFolder;
+    const chatCommand = [this.config.hermesBin, "chat", "-q", shellQuote(prompt), "-Q", "--source", "tool"].join(
       " ",
     );
+    const command =
+      typeof workspaceFolder === "string" && workspaceFolder
+        ? `cd ${shellQuote(workspaceFolder)} && ${chatCommand}`
+        : chatCommand;
 
     let result: ExecResult;
     try {
@@ -192,6 +197,16 @@ export class HermesConnector implements AgentConnector {
   async runCommand(args: string[], signal?: AbortSignal): Promise<ExecResult> {
     await this.connect();
     const command = [this.config.hermesBin, ...args.map(shellQuote)].join(" ");
+    return this.exec(command, signal);
+  }
+
+  /**
+   * Runs a raw shell command (not a `hermes` subcommand) — used for folder
+   * management (git clone/ls/rm under the workspaces dir). Caller is
+   * responsible for quoting/escaping any interpolated values via `shellQuote`.
+   */
+  async runShell(command: string, signal?: AbortSignal): Promise<ExecResult> {
+    await this.connect();
     return this.exec(command, signal);
   }
 

@@ -5,7 +5,6 @@ import { HermesEmbed } from "@/components/hermes/hermes-embed";
 export const dynamic = "force-dynamic";
 
 const TITLES: Record<string, string> = {
-  files: "Files",
   logs: "Logs",
   cron: "Cron",
   plugins: "Plugins",

@@ -53,7 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Chat", href: "/chat", icon: MessageSquare },
       { label: "Sessions", href: "/sessions", icon: MessagesSquare },
-      { label: "Files", href: "/hermes/files", icon: FolderOpen },
+      { label: "Files", href: "/files", icon: FolderOpen },
       { label: "Models", href: "/models", icon: Cpu },
       { label: "Logs", href: "/hermes/logs", icon: ScrollText },
       { label: "Cron", href: "/hermes/cron", icon: Clock3 },

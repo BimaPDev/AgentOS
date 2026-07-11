@@ -207,6 +207,7 @@ export class HermesConnector implements AgentConnector {
   async chatTurn(options: {
     prompt: string;
     sessionId?: string | null;
+    model?: string | null;
     workspaceFolder?: string | null;
     source?: string;
     signal?: AbortSignal;
@@ -225,6 +226,9 @@ export class HermesConnector implements AgentConnector {
     ];
     if (options.sessionId) {
       args.push("--resume", shellQuote(options.sessionId));
+    }
+    if (options.model) {
+      args.push("-m", shellQuote(options.model));
     }
     const chatCommand = args.join(" ");
     const cwd =

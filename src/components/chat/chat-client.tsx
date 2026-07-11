@@ -16,11 +16,15 @@ import type {
   HermesChatSessionDetail,
   HermesChatSessionsResult,
 } from "@/lib/hermes-chat";
-import type { WorkspaceFoldersResult } from "@/lib/hermes-admin";
 import type { StreamChunk } from "@/lib/connectors/types";
 
 interface ChatClientProps {
   initialSessions: HermesChatSessionsResult;
+}
+
+interface Router9Model {
+  id: string;
+  ownedBy: string;
 }
 
 interface UiMessage {
@@ -90,17 +94,21 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [workspaceFolder, setWorkspaceFolder] = useState("");
-  const [folders, setFolders] = useState<WorkspaceFoldersResult["folders"] | null>(null);
+  const [model, setModel] = useState("");
+  const [models, setModels] = useState<Router9Model[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<WorkspaceFoldersResult>("/api/hermes/folders")
-      .then((res) => !cancelled && setFolders(res.folders))
-      .catch(() => !cancelled && setFolders([]));
+    apiFetch<{ models: Router9Model[] }>("/api/router9/models")
+      .then((res) => {
+        if (cancelled) return;
+        setModels(res.models);
+        setModel((current) => current || res.models[0]?.id || "");
+      })
+      .catch(() => !cancelled && setModels([]));
     return () => {
       cancelled = true;
     };
@@ -130,7 +138,7 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
     try {
       const detail = await apiFetch<HermesChatSessionDetail>(`/api/hermes/sessions/${id}`);
       setMessages(toUiMessages(detail.messages));
-      if (detail.session?.cwd) setWorkspaceFolder(detail.session.cwd);
+      if (detail.session?.model) setModel(detail.session.model);
     } catch (err) {
       setMessages([]);
       setThreadError(err instanceof Error ? err.message : String(err));
@@ -180,7 +188,7 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
         body: JSON.stringify({
           prompt,
           sessionId: activeId,
-          workspaceFolder: workspaceFolder || null,
+          model: model || null,
         }),
         signal: controller.signal,
       });
@@ -338,16 +346,17 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
             </p>
           </div>
           <select
-            value={workspaceFolder}
-            onChange={(e) => setWorkspaceFolder(e.target.value)}
-            disabled={sending}
-            className="max-w-[14rem] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
-            title="Workspace folder (cwd for this chat)"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            disabled={sending || models === null}
+            className="max-w-[18rem] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+            title="Model for this chat (passed to Hermes as -m)"
+            aria-label="Model"
           >
-            <option value="">Hermes home</option>
-            {(folders ?? []).map((f) => (
-              <option key={f.name} value={f.path}>
-                {f.name}
+            <option value="">Hermes default</option>
+            {(models ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}
               </option>
             ))}
           </select>

@@ -12,6 +12,7 @@ export const maxDuration = 300;
 interface ChatRequestBody {
   prompt?: string;
   sessionId?: string | null;
+  model?: string | null;
   workspaceFolder?: string | null;
 }
 
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
         const turn = await hermes.chatTurn({
           prompt,
           sessionId: body.sessionId ?? null,
+          model: typeof body.model === "string" && body.model.trim() ? body.model.trim() : null,
           workspaceFolder: body.workspaceFolder ?? null,
           source: "agentos",
           signal: request.signal,

@@ -105,8 +105,15 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
     apiFetch<{ models: Router9Model[] }>("/api/router9/models")
       .then((res) => {
         if (cancelled) return;
-        setModels(res.models);
-        setModel((current) => current || res.models[0]?.id || "");
+        // Prefer the Free_Homelab combo at the top of the picker; do NOT
+        // auto-select a model — leave "" so Hermes uses its own default
+        // (config model.default = Free_Homelab) unless the user overrides.
+        const sorted = [...res.models].sort((a, b) => {
+          if (a.id === "Free_Homelab") return -1;
+          if (b.id === "Free_Homelab") return 1;
+          return a.id.localeCompare(b.id);
+        });
+        setModels(sorted);
       })
       .catch(() => !cancelled && setModels([]));
     return () => {
@@ -350,13 +357,13 @@ export function ChatClient({ initialSessions }: ChatClientProps) {
             onChange={(e) => setModel(e.target.value)}
             disabled={sending || models === null}
             className="max-w-[18rem] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
-            title="Model for this chat (passed to Hermes as -m)"
+            title="Leave on Free_Homelab (auto) to use Hermes' configured combo with fallback"
             aria-label="Model"
           >
-            <option value="">Hermes default</option>
+            <option value="">Free_Homelab (auto)</option>
             {(models ?? []).map((m) => (
               <option key={m.id} value={m.id}>
-                {m.id}
+                {m.id === "Free_Homelab" ? "Free_Homelab (force)" : m.id}
               </option>
             ))}
           </select>

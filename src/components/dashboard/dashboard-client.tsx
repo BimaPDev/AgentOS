@@ -126,7 +126,7 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
           <RunStatusBar statusCounts={stats.statusCounts} />
         </Panel>
         <Panel title="Scheduled tasks">
-          <ScheduledTasksPanel />
+          <ScheduledTasksPanel nowMs={nowMs} />
         </Panel>
       </div>
     </div>

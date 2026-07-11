@@ -30,13 +30,13 @@ import {
   SmartAgentMakerModal,
   type SmartCreateValues,
 } from "@/components/agents/smart-agent-maker-modal";
+import { ScheduleAgentModal } from "@/components/agents/schedule-agent-modal";
+import { seedPromptForNode } from "@/lib/execution/seed-prompt";
 import type {
   Agent,
-  ConditionStepConfig,
+  AgentSchedule,
   GraphEdge,
   GraphNode,
-  OutputStepConfig,
-  PromptStepConfig,
   ToolCallStepConfig,
 } from "@/lib/types/domain";
 import { ROOT_GRAPH_ID } from "@/lib/types/domain";
@@ -49,23 +49,6 @@ export interface AgentPreview {
 
 interface AgentsLibraryClientProps {
   initialPreviews: AgentPreview[];
-}
-
-function seedPrompt(node: GraphNode): string {
-  switch (node.type) {
-    case "prompt":
-      return (node.config as PromptStepConfig).prompt || "(no prompt configured)";
-    case "tool-call": {
-      const config = node.config as ToolCallStepConfig;
-      return config.toolName ? `Call tool ${config.toolName}` : "(no tool configured)";
-    }
-    case "condition":
-      return (node.config as ConditionStepConfig).expression || "(no condition configured)";
-    case "output":
-      return `Format output as ${(node.config as OutputStepConfig).format ?? "text"}`;
-    default:
-      return "";
-  }
 }
 
 function safeFilename(name: string) {
@@ -118,6 +101,8 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSmartModal, setShowSmartModal] = useState(false);
   const [consoleLabels, setConsoleLabels] = useState<Record<string, string>>({});
+  const [schedulesByAgent, setSchedulesByAgent] = useState<Record<string, AgentSchedule>>({});
+  const [scheduleTarget, setScheduleTarget] = useState<AgentPreview | null>(null);
   const pushToast = useToastStore((state) => state.push);
   const runStatus = useRunStore((state) => state.status);
   const startRun = useRunStore((state) => state.startRun);
@@ -141,6 +126,51 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
     };
   }, []);
 
+  useEffect(() => {
+    void apiFetch<Array<AgentSchedule & { agentName?: string }>>("/api/schedules")
+      .then((rows) => {
+        setSchedulesByAgent(Object.fromEntries(rows.map((row) => [row.agentId, row])));
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveSchedule = useCallback(
+    async (agentId: string, intervalMinutes: number, enabled = true) => {
+      const schedule = await apiFetch<AgentSchedule>("/api/schedules", {
+        method: "POST",
+        body: JSON.stringify({ agentId, intervalMinutes, enabled }),
+      });
+      setSchedulesByAgent((current) => ({ ...current, [agentId]: schedule }));
+      pushToast(
+        enabled
+          ? `Scheduled every ${intervalMinutes} min — first run after one interval.`
+          : "Schedule saved (disabled).",
+      );
+    },
+    [pushToast],
+  );
+
+  const toggleAutoRun = useCallback(
+    async (preview: AgentPreview) => {
+      setOpenMenuId(null);
+      if (preview.nodes.length === 0) {
+        pushToast("Add at least one pipeline step before enabling auto-run.");
+        return;
+      }
+      const existing = schedulesByAgent[preview.agent.id];
+      if (existing?.enabled) {
+        const updated = await apiFetch<AgentSchedule>(`/api/schedules/${existing.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: false }),
+        });
+        setSchedulesByAgent((current) => ({ ...current, [preview.agent.id]: updated }));
+        pushToast("Auto-run disabled.");
+        return;
+      }
+      await saveSchedule(preview.agent.id, existing?.intervalMinutes ?? 60, true);
+    },
+    [pushToast, saveSchedule, schedulesByAgent],
+  );
   const createRootNode = useCallback(async (agent: Agent, index: number) => {
     await apiFetch<GraphNode>(`/api/graphs/${ROOT_GRAPH_ID}/nodes`, {
       method: "POST",
@@ -297,7 +327,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
           workspaceFolder: preview.agent.workspaceFolder,
           model: preview.agent.model,
           nodeType: node.type,
-          seedPrompt: seedPrompt(node),
+          seedPrompt: seedPromptForNode(node),
           toolName: toolConfig?.toolName,
           toolArgs: toolConfig?.toolArgs,
         };
@@ -420,6 +450,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
             {previews.map((preview) => {
               const { agent, nodes } = preview;
               const isRunning = runningAgentId === agent.id;
+              const schedule = schedulesByAgent[agent.id];
               return (
                 <article
                   key={agent.id}
@@ -472,15 +503,23 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
                           <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
                           <MenuItem
                             icon={Zap}
-                            disabled
-                            suffix={<span className="text-[10px] uppercase tracking-wide">Soon</span>}
+                            onClick={() => void toggleAutoRun(preview)}
+                            suffix={
+                              schedule?.enabled ? (
+                                <span className="text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                                  On
+                                </span>
+                              ) : undefined
+                            }
                           >
-                            Auto-run
+                            {schedule?.enabled ? "Disable auto-run" : "Auto-run"}
                           </MenuItem>
                           <MenuItem
                             icon={Clock3}
-                            disabled
-                            suffix={<span className="text-[10px] uppercase tracking-wide">Soon</span>}
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              setScheduleTarget(preview);
+                            }}
                           >
                             Schedule run
                           </MenuItem>
@@ -512,6 +551,15 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
                       <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-medium dark:bg-zinc-800">
                         {agent.connectorType}
                       </span>
+                      {schedule?.enabled && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                          title={`Every ${schedule.intervalMinutes} min`}
+                        >
+                          <Clock3 size={11} />
+                          {schedule.intervalMinutes}m
+                        </span>
+                      )}
                       {agent.workspaceFolder && (
                         <span
                           className="inline-flex items-center gap-1 truncate rounded-full bg-zinc-100 px-2 py-0.5 font-medium dark:bg-zinc-800"
@@ -564,6 +612,20 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
 
       {showSmartModal && (
         <SmartAgentMakerModal onClose={() => setShowSmartModal(false)} onCreate={handleSmartCreate} />
+      )}
+
+      {scheduleTarget && (
+        <ScheduleAgentModal
+          agentName={scheduleTarget.agent.name}
+          initialMinutes={schedulesByAgent[scheduleTarget.agent.id]?.intervalMinutes ?? 60}
+          onClose={() => setScheduleTarget(null)}
+          onSave={async (intervalMinutes) => {
+            if (scheduleTarget.nodes.length === 0) {
+              throw new Error("Add at least one pipeline step before scheduling.");
+            }
+            await saveSchedule(scheduleTarget.agent.id, intervalMinutes, true);
+          }}
+        />
       )}
     </div>
   );

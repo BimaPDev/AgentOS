@@ -106,5 +106,18 @@ export interface RunLog {
   message: string;
 }
 
+/** Recurring schedule for an AgentOS agent pipeline. */
+export interface AgentSchedule {
+  id: string;
+  agentId: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastRunId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** The root (top-level) orchestration graph always uses this graph id. */
 export const ROOT_GRAPH_ID = "root";

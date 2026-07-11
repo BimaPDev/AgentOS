@@ -1,6 +1,7 @@
-import type { agents, edges, nodes, runLogs, runNodeStates, runs } from "./schema";
+import type { agents, edges, nodes, runLogs, runNodeStates, runs, schedules } from "./schema";
 import type {
   Agent,
+  AgentSchedule,
   ConnectorType,
   GraphEdge,
   GraphNode,
@@ -18,6 +19,7 @@ type EdgeRow = typeof edges.$inferSelect;
 type RunRow = typeof runs.$inferSelect;
 type RunNodeStateRow = typeof runNodeStates.$inferSelect;
 type RunLogRow = typeof runLogs.$inferSelect;
+type ScheduleRow = typeof schedules.$inferSelect;
 
 export function toAgent(row: AgentRow): Agent {
   return {
@@ -103,5 +105,19 @@ export function toRunLog(row: RunLogRow): RunLog {
     ts: row.ts,
     level: row.level as RunLog["level"],
     message: row.message,
+  };
+}
+
+export function toAgentSchedule(row: ScheduleRow): AgentSchedule {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    intervalMinutes: row.intervalMinutes,
+    enabled: Boolean(row.enabled),
+    nextRunAt: row.nextRunAt,
+    lastRunAt: row.lastRunAt,
+    lastRunId: row.lastRunId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }

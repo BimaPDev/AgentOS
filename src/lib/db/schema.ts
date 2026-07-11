@@ -97,3 +97,25 @@ export const runLogs = sqliteTable(
   },
   (table) => [index("run_logs_run_id_idx").on(table.runId)],
 );
+
+/** Recurring AgentOS agent runs (separate from Hermes cron). */
+export const schedules = sqliteTable(
+  "schedules",
+  {
+    id: text("id").primaryKey(),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    intervalMinutes: integer("interval_minutes").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    nextRunAt: text("next_run_at").notNull(),
+    lastRunAt: text("last_run_at"),
+    lastRunId: text("last_run_id"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("schedules_agent_id_idx").on(table.agentId),
+    index("schedules_next_run_at_idx").on(table.nextRunAt),
+  ],
+);

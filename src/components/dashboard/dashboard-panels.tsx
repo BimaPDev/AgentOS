@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import clsx from "clsx";
+import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, XCircle, Loader2, Circle, CalendarClock, ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ActivityItem, DashboardAgent, DashboardStats } from "@/lib/dashboard";
 import type { RunStatus } from "@/lib/types/domain";
+import { apiFetch } from "@/lib/utils/fetcher";
 import { timeAgo } from "@/lib/utils/time";
 
 /* ---------- shared status vocabulary (reserved status colors + icon + label) ---------- */
@@ -225,22 +227,99 @@ export function ActivityFeed({ activity, now }: { activity: ActivityItem[]; now:
   );
 }
 
-/* ---------- Scheduled tasks (placeholder — no scheduler wired up yet) ---------- */
+/* ---------- Scheduled tasks ---------- */
 
-export function ScheduledTasksPanel() {
+type ScheduleRow = {
+  id: string;
+  agentId: string;
+  agentName: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+};
+
+function formatInterval(minutes: number): string {
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
+}
+
+export function ScheduledTasksPanel({ nowMs }: { nowMs?: number }) {
+  const [rows, setRows] = useState<ScheduleRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(() => {
+    void apiFetch<ScheduleRow[]>("/api/schedules")
+      .then(setRows)
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const poll = setInterval(refresh, 10_000);
+    return () => clearInterval(poll);
+  }, [refresh]);
+
+  const toggle = async (row: ScheduleRow) => {
+    const updated = await apiFetch<ScheduleRow>(`/api/schedules/${row.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: !row.enabled }),
+    });
+    setRows((current) => current.map((item) => (item.id === row.id ? { ...item, ...updated } : item)));
+  };
+
+  if (loading) {
+    return <p className="px-4 py-6 text-center text-xs text-zinc-400">Loading schedules…</p>;
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+        <CalendarClock size={22} className="text-zinc-300 dark:text-zinc-600" />
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No scheduled tasks yet</p>
+        <p className="max-w-xs text-xs text-zinc-400 dark:text-zinc-500">
+          Open an agent&rsquo;s menu and choose Schedule run or Auto-run.
+        </p>
+        <Link
+          href="/agents"
+          className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Agents <ArrowRight size={12} />
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-      <CalendarClock size={22} className="text-zinc-300 dark:text-zinc-600" />
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">No scheduled tasks yet</p>
-      <p className="max-w-xs text-xs text-zinc-400 dark:text-zinc-500">
-        Recurring agent runs will appear here once the scheduler is wired up.
-      </p>
-      <Link
-        href="/config"
-        className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-      >
-        Configure <ArrowRight size={12} />
-      </Link>
-    </div>
+    <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+      {rows.map((row) => (
+        <li key={row.id} className="flex items-center gap-3 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{row.agentName}</div>
+            <div className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+              every {formatInterval(row.intervalMinutes)}
+              {row.enabled
+                ? ` · next ${timeAgo(row.nextRunAt, nowMs ?? Date.now())}`
+                : " · paused"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void toggle(row)}
+            className={clsx(
+              "rounded-md px-2 py-1 text-[11px] font-medium",
+              row.enabled
+                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300",
+            )}
+          >
+            {row.enabled ? "On" : "Off"}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
+

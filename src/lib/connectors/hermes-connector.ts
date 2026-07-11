@@ -277,26 +277,92 @@ export class HermesConnector implements AgentConnector {
         reject(new Error("Hermes SSH client is not connected."));
         return;
       }
-      this.client.exec(command, (err, stream) => {
+
+      // Print the shell PID on stderr first so Stop can SIGINT the remote
+      // process group (what Ctrl+C does). Keep stdout/stderr split — no PTY.
+      const wrapped = `sh -c ${shellQuote(`echo "AGENTOS_SSH_PID:$$" >&2; ${command}`)}`;
+
+      this.client.exec(wrapped, (err, stream) => {
         if (err) {
           reject(err);
           return;
         }
+
         let stdout = "";
         let stderr = "";
-        const onAbort = () => stream.close();
-        signal?.addEventListener("abort", onAbort);
+        let remotePid: number | null = null;
+        let settled = false;
+        let forceCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const cleanup = () => {
+          signal?.removeEventListener("abort", onAbort);
+          if (forceCloseTimer) clearTimeout(forceCloseTimer);
+        };
+
+        const interruptRemote = () => {
+          // Ctrl+C on the channel (best-effort; OpenSSH often ignores channel signals).
+          try {
+            stream.write("\x03");
+          } catch {
+            // stream may already be closing
+          }
+          try {
+            stream.signal("INT");
+          } catch {
+            // OpenSSH frequently does not implement channel signals
+          }
+
+          // Reliable path: SIGINT the remote process group (same as Ctrl+C).
+          if (remotePid && this.client) {
+            const pid = remotePid;
+            this.client.exec(
+              `kill -INT -${pid} 2>/dev/null; kill -INT ${pid} 2>/dev/null; sleep 0.4; kill -TERM -${pid} 2>/dev/null; kill -KILL -${pid} 2>/dev/null; true`,
+              () => {
+                // best-effort kill; ignore errors
+              },
+            );
+          }
+
+          forceCloseTimer = setTimeout(() => {
+            try {
+              stream.close();
+            } catch {
+              // ignore
+            }
+          }, 2000);
+        };
+
+        const onAbort = () => interruptRemote();
+
+        if (signal?.aborted) {
+          interruptRemote();
+        } else {
+          signal?.addEventListener("abort", onAbort);
+        }
+
         stream
           .on("close", (code: number | null) => {
-            signal?.removeEventListener("abort", onAbort);
+            if (settled) return;
+            settled = true;
+            cleanup();
             resolve({ stdout, stderr, code: code ?? 0 });
           })
           .on("data", (data: Buffer) => {
             stdout += data.toString("utf8");
-          })
-          .stderr.on("data", (data: Buffer) => {
-            stderr += data.toString("utf8");
           });
+
+        stream.stderr.on("data", (data: Buffer) => {
+          const chunk = data.toString("utf8");
+          if (remotePid === null) {
+            const match = chunk.match(/AGENTOS_SSH_PID:(\d+)/);
+            if (match) {
+              remotePid = Number(match[1]);
+              stderr += chunk.replace(/AGENTOS_SSH_PID:\d+\r?\n?/, "");
+              return;
+            }
+          }
+          stderr += chunk;
+        });
       });
     });
   }

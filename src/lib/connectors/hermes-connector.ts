@@ -147,9 +147,10 @@ export class HermesConnector implements AgentConnector {
 
     const prompt = options.prompt || "(empty prompt)";
     const workspaceFolder = options.context?.workspaceFolder;
-    const chatCommand = [this.config.hermesBin, "chat", "-q", shellQuote(prompt), "-Q", "--source", "tool"].join(
-      " ",
-    );
+    const model = options.context?.model;
+    const chatArgs = [this.config.hermesBin, "chat", "-q", shellQuote(prompt), "-Q", "--source", "tool"];
+    if (typeof model === "string" && model) chatArgs.push("-m", shellQuote(model));
+    const chatCommand = chatArgs.join(" ");
     const command =
       typeof workspaceFolder === "string" && workspaceFolder
         ? `cd ${shellQuote(workspaceFolder)} && ${chatCommand}`
@@ -226,10 +227,11 @@ export class HermesConnector implements AgentConnector {
       args.push("--resume", shellQuote(options.sessionId));
     }
     const chatCommand = args.join(" ");
-    const command =
+    const cwd =
       typeof options.workspaceFolder === "string" && options.workspaceFolder
-        ? `cd ${shellQuote(options.workspaceFolder)} && ${chatCommand}`
-        : chatCommand;
+        ? options.workspaceFolder
+        : "/home/hermes";
+    const command = `cd ${shellQuote(cwd)} && ${chatCommand}`;
 
     const result = await this.exec(command, options.signal);
     const sessionId = parseSessionId(result.stderr) ?? options.sessionId ?? null;

@@ -1,0 +1,339 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Connection, Edge, NodeTypes } from "@xyflow/react";
+import { apiFetch } from "@/lib/utils/fetcher";
+import { useCanvasStore, type CanvasNode, type StepNodeData } from "@/lib/stores/canvas-store";
+import { useRunStore } from "@/lib/stores/run-store";
+import { useToastStore } from "@/lib/stores/toast-store";
+import { GraphCycleError, runGraph, type RunEngineNode } from "@/lib/execution/run-engine";
+import { PipelineCanvas } from "@/components/canvas/pipeline-canvas";
+import { StepNode } from "@/components/canvas/step-node";
+import { CanvasToolbar, ToolbarButton } from "@/components/canvas/canvas-toolbar";
+import { NodeInspectorPanel } from "@/components/inspector/node-inspector-panel";
+import { RunButton } from "@/components/run/run-controls";
+import { RunConsolePanel } from "@/components/run/run-console-panel";
+import type {
+  ConditionStepConfig,
+  ConnectorType,
+  GraphEdge,
+  GraphNode,
+  NodeConfig,
+  NodeType,
+  OutputStepConfig,
+  PromptStepConfig,
+  ToolCallStepConfig,
+} from "@/lib/types/domain";
+
+const NODE_TYPES: NodeTypes = { step: StepNode };
+
+const STEP_TYPES: Array<{ type: Exclude<NodeType, "agent">; label: string }> = [
+  { type: "prompt", label: "+ Prompt" },
+  { type: "tool-call", label: "+ Tool call" },
+  { type: "condition", label: "+ Condition" },
+  { type: "output", label: "+ Output" },
+];
+
+function defaultConfigFor(type: Exclude<NodeType, "agent">): NodeConfig {
+  switch (type) {
+    case "prompt":
+      return { prompt: "", temperature: 0.7 };
+    case "tool-call":
+      return { toolName: "", toolArgs: {} };
+    case "condition":
+      return { expression: "" };
+    case "output":
+      return { format: "text" };
+  }
+}
+
+function resolveSeedPrompt(node: GraphNode): string {
+  switch (node.type) {
+    case "prompt":
+      return (node.config as PromptStepConfig).prompt || "(no prompt configured)";
+    case "tool-call": {
+      const c = node.config as ToolCallStepConfig;
+      return c.toolName ? `Call tool ${c.toolName}` : "(no tool configured)";
+    }
+    case "condition":
+      return (node.config as ConditionStepConfig).expression || "(no condition configured)";
+    case "output":
+      return `Format output as ${(node.config as OutputStepConfig).format ?? "text"}`;
+    default:
+      return "";
+  }
+}
+
+interface AgentPipelineClientProps {
+  agentId: string;
+  connectorType: ConnectorType;
+  initialNodes: GraphNode[];
+  initialEdges: GraphEdge[];
+}
+
+export function AgentPipelineClient({
+  agentId,
+  connectorType,
+  initialNodes,
+  initialEdges,
+}: AgentPipelineClientProps) {
+  const initGraph = useCanvasStore((s) => s.initGraph);
+  const nodes = useCanvasStore((s) => s.nodes);
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const selectNode = useCanvasStore((s) => s.selectNode);
+  const addNode = useCanvasStore((s) => s.addNode);
+  const removeNode = useCanvasStore((s) => s.removeNode);
+  const addEdge = useCanvasStore((s) => s.addEdge);
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const setCanvasNodeStatus = useCanvasStore((s) => s.setNodeStatus);
+  const resetAllStatuses = useCanvasStore((s) => s.resetAllStatuses);
+  const edges = useCanvasStore((s) => s.edges);
+
+  const runStatus = useRunStore((s) => s.status);
+  const startRunStore = useRunStore((s) => s.startRun);
+  const setRunNodeStatus = useRunStore((s) => s.setNodeStatus);
+  const appendRunToken = useRunStore((s) => s.appendNodeToken);
+  const addRunLog = useRunStore((s) => s.addLog);
+  const finishRunStore = useRunStore((s) => s.finishRun);
+  const [showConsole, setShowConsole] = useState(false);
+  const pushToast = useToastStore((s) => s.push);
+
+  useEffect(() => {
+    const rfNodes: CanvasNode[] = initialNodes.map((n) => ({
+      id: n.id,
+      type: "step",
+      position: { x: n.positionX, y: n.positionY },
+      data: { kind: "step", graphNode: n },
+    }));
+    const rfEdges: Edge[] = initialEdges.map((e) => ({
+      id: e.id,
+      source: e.sourceNodeId,
+      target: e.targetNodeId,
+      label: e.label ?? undefined,
+    }));
+    initGraph({ graphId: agentId, nodes: rfNodes, edges: rfEdges });
+    return () => useCanvasStore.getState().reset();
+  }, [agentId, initialNodes, initialEdges, initGraph]);
+
+  const selectedNode = useMemo(
+    () => nodes.find((n) => n.id === selectedNodeId) ?? null,
+    [nodes, selectedNodeId],
+  );
+
+  const handleAddStep = useCallback(
+    async (type: Exclude<NodeType, "agent">) => {
+      try {
+        const index = nodes.length + 1;
+        const position = { x: 120 + (index % 5) * 220, y: 120 + Math.floor(index / 5) * 160 };
+        const config = defaultConfigFor(type);
+        const node = await apiFetch<GraphNode>(`/api/graphs/${agentId}/nodes`, {
+          method: "POST",
+          body: JSON.stringify({
+            type,
+            positionX: position.x,
+            positionY: position.y,
+            label: type,
+            config,
+          }),
+        });
+        addNode({ id: node.id, type: "step", position, data: { kind: "step", graphNode: node } });
+      } catch (err) {
+        console.error("Failed to add step", err);
+        pushToast("Failed to add step.");
+      }
+    },
+    [agentId, nodes.length, addNode, pushToast],
+  );
+
+  const handleConnect = useCallback(
+    async (connection: Connection) => {
+      if (!connection.source || !connection.target) return;
+      try {
+        const edge = await apiFetch<GraphEdge>(`/api/graphs/${agentId}/edges`, {
+          method: "POST",
+          body: JSON.stringify({
+            sourceNodeId: connection.source,
+            targetNodeId: connection.target,
+          }),
+        });
+        addEdge({ id: edge.id, source: edge.sourceNodeId, target: edge.targetNodeId });
+      } catch (err) {
+        console.error("Failed to create connection", err);
+        pushToast("Failed to create connection.");
+      }
+    },
+    [agentId, addEdge, pushToast],
+  );
+
+  const handleNodeDragStop = useCallback(
+    (node: CanvasNode) => {
+      apiFetch(`/api/graphs/${agentId}/nodes/${node.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ positionX: node.position.x, positionY: node.position.y }),
+      }).catch((err) => {
+        console.error("Failed to persist node position", err);
+        pushToast("Failed to save node position.");
+      });
+    },
+    [agentId, pushToast],
+  );
+
+  const persistNodeDeletion = useCallback(
+    async (node: CanvasNode) => {
+      await apiFetch(`/api/graphs/${agentId}/nodes/${node.id}`, { method: "DELETE" });
+    },
+    [agentId],
+  );
+
+  const handleNodesDelete = useCallback(
+    (deleted: CanvasNode[]) => {
+      deleted.forEach((n) =>
+        persistNodeDeletion(n).catch((err) => {
+          console.error("Failed to delete node", err);
+          pushToast("Failed to delete step.");
+        }),
+      );
+    },
+    [persistNodeDeletion, pushToast],
+  );
+
+  const handleEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      deleted.forEach((e) => {
+        apiFetch(`/api/graphs/${agentId}/edges/${e.id}`, { method: "DELETE" }).catch(() => {});
+      });
+    },
+    [agentId],
+  );
+
+  const handleDeleteSelected = useCallback(() => {
+    if (!selectedNodeId) return;
+    const node = nodes.find((n) => n.id === selectedNodeId);
+    if (!node) return;
+    if (typeof window !== "undefined" && !window.confirm("Delete this step? This cannot be undone.")) return;
+    removeNode(selectedNodeId);
+    persistNodeDeletion(node).catch((err) => {
+      console.error("Failed to delete node", err);
+      pushToast("Failed to delete step.");
+    });
+  }, [selectedNodeId, nodes, removeNode, persistNodeDeletion, pushToast]);
+
+  const handleStepSave = useCallback(
+    async (nodeId: string, patch: { label?: string | null; config: NodeConfig }) => {
+      try {
+        const updated = await apiFetch<GraphNode>(`/api/graphs/${agentId}/nodes/${nodeId}`, {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        });
+        updateNodeData(nodeId, { graphNode: updated });
+      } catch (err) {
+        console.error("Failed to save step", err);
+        pushToast("Failed to save step.");
+      }
+    },
+    [agentId, updateNodeData, pushToast],
+  );
+
+  const handleRun = useCallback(async () => {
+    if (nodes.length === 0) return;
+    resetAllStatuses();
+    setShowConsole(true);
+    const runEngineNodes: RunEngineNode[] = nodes.map((n) => {
+      const data = n.data as StepNodeData;
+      return {
+        id: n.id,
+        connectorType,
+        nodeType: data.graphNode.type,
+        seedPrompt: resolveSeedPrompt(data.graphNode),
+        toolName:
+          data.graphNode.type === "tool-call" ? (data.graphNode.config as ToolCallStepConfig).toolName : undefined,
+        toolArgs:
+          data.graphNode.type === "tool-call" ? (data.graphNode.config as ToolCallStepConfig).toolArgs : undefined,
+      };
+    });
+    const runEngineEdges = edges.map((e) => ({ source: e.source, target: e.target }));
+    startRunStore({ runId: "pending", graphId: agentId, nodeIds: nodes.map((n) => n.id) });
+    try {
+      const result = await runGraph({
+        graphId: agentId,
+        nodes: runEngineNodes,
+        edges: runEngineEdges,
+        callbacks: {
+          onNodeStatus: (nodeId, status) => {
+            setRunNodeStatus(nodeId, status);
+            setCanvasNodeStatus(nodeId, status);
+          },
+          onToken: appendRunToken,
+          onLog: addRunLog,
+        },
+      });
+      finishRunStore(result.status);
+    } catch (err) {
+      if (err instanceof GraphCycleError) {
+        addRunLog(err.message, "error");
+      } else {
+        addRunLog(err instanceof Error ? err.message : String(err), "error");
+      }
+      finishRunStore("error");
+    }
+  }, [
+    nodes,
+    edges,
+    agentId,
+    connectorType,
+    resetAllStatuses,
+    startRunStore,
+    setRunNodeStatus,
+    setCanvasNodeStatus,
+    appendRunToken,
+    addRunLog,
+    finishRunStore,
+  ]);
+
+  const nodeLabelById = useMemo(
+    () => Object.fromEntries(nodes.map((n) => [n.id, (n.data as StepNodeData).graphNode.label ?? n.id])),
+    [nodes],
+  );
+
+  return (
+    <div className="relative flex-1">
+      <PipelineCanvas
+        nodeTypes={NODE_TYPES}
+        onConnect={handleConnect}
+        onNodeDragStop={handleNodeDragStop}
+        onNodeClick={(node) => selectNode(node.id)}
+        onPaneClick={() => selectNode(null)}
+        onNodesDelete={handleNodesDelete}
+        onEdgesDelete={handleEdgesDelete}
+        viewportStorageKey={`agentos:viewport:${agentId}`}
+      />
+      {nodes.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="pointer-events-auto flex flex-col items-center gap-3 rounded-lg border border-dashed border-zinc-300 bg-white/90 px-8 py-10 text-center dark:border-zinc-700 dark:bg-zinc-900/90">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              This agent has no steps yet. Add one to start building its pipeline.
+            </p>
+            <ToolbarButton onClick={() => void handleAddStep("prompt")}>Add a prompt step</ToolbarButton>
+          </div>
+        </div>
+      )}
+      <CanvasToolbar onDeleteSelected={handleDeleteSelected} hasSelection={!!selectedNodeId}>
+        {STEP_TYPES.map(({ type, label }) => (
+          <ToolbarButton key={type} variant="secondary" onClick={() => void handleAddStep(type)}>
+            {label}
+          </ToolbarButton>
+        ))}
+        <RunButton onRun={() => void handleRun()} isRunning={runStatus === "running"} disabled={nodes.length === 0} />
+      </CanvasToolbar>
+      {selectedNode && (
+        <NodeInspectorPanel
+          key={selectedNode.id}
+          node={selectedNode}
+          onSaveStep={handleStepSave}
+          onClose={() => selectNode(null)}
+        />
+      )}
+      {showConsole && <RunConsolePanel nodeLabelById={nodeLabelById} onClose={() => setShowConsole(false)} />}
+    </div>
+  );
+}

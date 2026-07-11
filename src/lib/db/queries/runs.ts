@@ -60,6 +60,33 @@ export function finishRun(id: string, status: Extract<RunStatus, "success" | "er
   return toRun(updated);
 }
 
+/** Mark a running run (and any in-flight nodes) as cancelled by the user. */
+export function cancelRun(id: string): Run | null {
+  ensureMigrated();
+  const existing = db.select().from(runs).where(eq(runs.id, id)).get();
+  if (!existing) return null;
+  if (existing.status !== "running") return toRun(existing);
+
+  const now = new Date().toISOString();
+  const nodes = db.select().from(runNodeStates).where(eq(runNodeStates.runId, id)).all();
+  for (const node of nodes) {
+    if (node.status === "running" || node.status === "idle") {
+      db.update(runNodeStates)
+        .set({
+          ...node,
+          status: "error" as RunStatus,
+          errorText: node.status === "running" ? "Cancelled by user" : "Skipped — run cancelled",
+          finishedAt: now,
+        })
+        .where(eq(runNodeStates.id, node.id))
+        .run();
+    }
+  }
+
+  appendRunLog(id, "Run cancelled by user.", "error");
+  return finishRun(id, "error");
+}
+
 export function listRunNodeStates(runId: string): RunNodeState[] {
   ensureMigrated();
   return db

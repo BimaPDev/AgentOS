@@ -12,9 +12,10 @@ const LEVEL_COLOR: Record<string, string> = {
 interface RunConsolePanelProps {
   nodeLabelById: Record<string, string>;
   onClose: () => void;
+  onStop?: () => void;
 }
 
-export function RunConsolePanel({ nodeLabelById, onClose }: RunConsolePanelProps) {
+export function RunConsolePanel({ nodeLabelById, onClose, onStop }: RunConsolePanelProps) {
   const status = useRunStore((s) => s.status);
   const logLines = useRunStore((s) => s.logLines);
   const nodeOutputs = useRunStore((s) => s.nodeOutputs);
@@ -28,9 +29,20 @@ export function RunConsolePanel({ nodeLabelById, onClose }: RunConsolePanelProps
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
           Run console — <span className={clsx(status === "error" && "text-red-400", status === "success" && "text-emerald-400", status === "running" && "text-amber-400")}>{status}</span>
         </span>
-        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Close console">
-          ✕
-        </button>
+        <div className="flex items-center gap-2">
+          {status === "running" && onStop && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="rounded px-2 py-0.5 text-xs font-medium text-red-400 hover:bg-red-950 hover:text-red-300"
+            >
+              Stop
+            </button>
+          )}
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Close console">
+            ✕
+          </button>
+        </div>
       </div>
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs">

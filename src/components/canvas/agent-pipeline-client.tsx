@@ -98,10 +98,12 @@ export function AgentPipelineClient({
 
   const runStatus = useRunStore((s) => s.status);
   const startRunStore = useRunStore((s) => s.startRun);
+  const setRunIdStore = useRunStore((s) => s.setRunId);
   const setRunNodeStatus = useRunStore((s) => s.setNodeStatus);
   const appendRunToken = useRunStore((s) => s.appendNodeToken);
   const addRunLog = useRunStore((s) => s.addLog);
   const finishRunStore = useRunStore((s) => s.finishRun);
+  const requestStop = useRunStore((s) => s.requestStop);
   const [showConsole, setShowConsole] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
@@ -314,8 +316,12 @@ export function AgentPipelineClient({
     [agentId, nodes, initGraph, pushToast],
   );
 
+  const handleStop = useCallback(() => {
+    requestStop();
+  }, [requestStop]);
+
   const handleRun = useCallback(async () => {
-    if (nodes.length === 0) return;
+    if (nodes.length === 0 || runStatus === "running") return;
     resetAllStatuses();
     setShowConsole(true);
     const runEngineNodes: RunEngineNode[] = nodes.map((n) => {
@@ -334,13 +340,21 @@ export function AgentPipelineClient({
       };
     });
     const runEngineEdges = edges.map((e) => ({ source: e.source, target: e.target }));
-    startRunStore({ runId: "pending", graphId: agentId, nodeIds: nodes.map((n) => n.id) });
+    const controller = new AbortController();
+    startRunStore({
+      runId: "pending",
+      graphId: agentId,
+      nodeIds: nodes.map((n) => n.id),
+      abortController: controller,
+    });
     try {
       const result = await runGraph({
         graphId: agentId,
         nodes: runEngineNodes,
         edges: runEngineEdges,
+        signal: controller.signal,
         callbacks: {
+          onRunCreated: setRunIdStore,
           onNodeStatus: (nodeId, status) => {
             setRunNodeStatus(nodeId, status);
             setCanvasNodeStatus(nodeId, status);
@@ -365,8 +379,10 @@ export function AgentPipelineClient({
     connectorType,
     workspaceFolder,
     model,
+    runStatus,
     resetAllStatuses,
     startRunStore,
+    setRunIdStore,
     setRunNodeStatus,
     setCanvasNodeStatus,
     appendRunToken,
@@ -414,7 +430,12 @@ export function AgentPipelineClient({
         <ToolbarButton variant="secondary" onClick={() => fileInputRef.current?.click()}>
           Load config
         </ToolbarButton>
-        <RunButton onRun={() => void handleRun()} isRunning={runStatus === "running"} disabled={nodes.length === 0} />
+        <RunButton
+          onRun={() => void handleRun()}
+          onStop={handleStop}
+          isRunning={runStatus === "running"}
+          disabled={nodes.length === 0}
+        />
       </CanvasToolbar>
       <input
         ref={fileInputRef}
@@ -427,7 +448,9 @@ export function AgentPipelineClient({
           e.target.value = "";
         }}
       />
-      {showConsole && <RunConsolePanel nodeLabelById={nodeLabelById} onClose={() => setShowConsole(false)} />}
+      {showConsole && (
+        <RunConsolePanel nodeLabelById={nodeLabelById} onClose={() => setShowConsole(false)} onStop={handleStop} />
+      )}
     </div>
   );
 }

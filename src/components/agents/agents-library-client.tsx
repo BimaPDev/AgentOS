@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   Play,
   Plus,
+  Square,
   Trash2,
   Sparkles,
   Upload,
@@ -120,10 +121,12 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
   const pushToast = useToastStore((state) => state.push);
   const runStatus = useRunStore((state) => state.status);
   const startRun = useRunStore((state) => state.startRun);
+  const setRunId = useRunStore((state) => state.setRunId);
   const setNodeStatus = useRunStore((state) => state.setNodeStatus);
   const appendNodeToken = useRunStore((state) => state.appendNodeToken);
   const addLog = useRunStore((state) => state.addLog);
   const finishRun = useRunStore((state) => state.finishRun);
+  const requestStop = useRunStore((state) => state.requestStop);
 
   useEffect(() => {
     const closeMenu = () => setOpenMenuId(null);
@@ -261,6 +264,10 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
     [pushToast],
   );
 
+  const handleStop = useCallback(() => {
+    requestStop();
+  }, [requestStop]);
+
   const handleRun = useCallback(
     async (preview: AgentPreview) => {
       setOpenMenuId(null);
@@ -274,10 +281,12 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
       setConsoleLabels(labels);
       setShowConsole(true);
       setRunningAgentId(preview.agent.id);
+      const controller = new AbortController();
       startRun({
         runId: "pending",
         graphId: preview.agent.id,
         nodeIds: preview.nodes.map((node) => node.id),
+        abortController: controller,
       });
 
       const nodes: RunEngineNode[] = preview.nodes.map((node) => {
@@ -302,7 +311,9 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
             source: edge.sourceNodeId,
             target: edge.targetNodeId,
           })),
+          signal: controller.signal,
           callbacks: {
+            onRunCreated: setRunId,
             onNodeStatus: setNodeStatus,
             onToken: appendNodeToken,
             onLog: addLog,
@@ -316,7 +327,7 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
         setRunningAgentId(null);
       }
     },
-    [addLog, appendNodeToken, finishRun, pushToast, runStatus, setNodeStatus, startRun],
+    [addLog, appendNodeToken, finishRun, pushToast, runStatus, setNodeStatus, setRunId, startRun],
   );
 
   return (
@@ -515,13 +526,21 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (isRunning) {
+                          handleStop();
+                          return;
+                        }
                         void handleRun(preview);
                       }}
-                      disabled={runStatus === "running" || nodes.length === 0}
-                      aria-label={`Run ${agent.name}`}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-indigo-950 dark:text-indigo-400 dark:hover:bg-indigo-900"
+                      disabled={(!isRunning && runStatus === "running") || (!isRunning && nodes.length === 0)}
+                      aria-label={isRunning ? `Stop ${agent.name}` : `Run ${agent.name}`}
+                      className={
+                        isRunning
+                          ? "flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                          : "flex h-8 w-8 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-indigo-950 dark:text-indigo-400 dark:hover:bg-indigo-900"
+                      }
                     >
-                      {isRunning ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} className="ml-0.5" />}
+                      {isRunning ? <Square size={13} fill="currentColor" /> : <Play size={15} className="ml-0.5" />}
                     </button>
                   </div>
                 </article>
@@ -531,7 +550,9 @@ export function AgentsLibraryClient({ initialPreviews }: AgentsLibraryClientProp
         )}
       </div>
 
-      {showConsole && <RunConsolePanel nodeLabelById={consoleLabels} onClose={() => setShowConsole(false)} />}
+      {showConsole && (
+        <RunConsolePanel nodeLabelById={consoleLabels} onClose={() => setShowConsole(false)} onStop={handleStop} />
+      )}
 
       {showCreateModal && (
         <CreateAgentModal

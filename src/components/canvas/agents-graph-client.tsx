@@ -47,10 +47,12 @@ export function AgentsGraphClient({
 
   const runStatus = useRunStore((s) => s.status);
   const startRunStore = useRunStore((s) => s.startRun);
+  const setRunIdStore = useRunStore((s) => s.setRunId);
   const setRunNodeStatus = useRunStore((s) => s.setNodeStatus);
   const appendRunToken = useRunStore((s) => s.appendNodeToken);
   const addRunLog = useRunStore((s) => s.addLog);
   const finishRunStore = useRunStore((s) => s.finishRun);
+  const requestStop = useRunStore((s) => s.requestStop);
   const [showConsole, setShowConsole] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
@@ -203,8 +205,12 @@ export function AgentsGraphClient({
     [selectedNodeId, updateNodeData, pushToast],
   );
 
+  const handleStop = useCallback(() => {
+    requestStop();
+  }, [requestStop]);
+
   const handleRun = useCallback(async () => {
-    if (nodes.length === 0) return;
+    if (nodes.length === 0 || runStatus === "running") return;
     resetAllStatuses();
     setShowConsole(true);
     const runEngineNodes: RunEngineNode[] = nodes.map((n) => {
@@ -222,13 +228,21 @@ export function AgentsGraphClient({
       };
     });
     const runEngineEdges = edges.map((e) => ({ source: e.source, target: e.target }));
-    startRunStore({ runId: "pending", graphId: ROOT_GRAPH_ID, nodeIds: nodes.map((n) => n.id) });
+    const controller = new AbortController();
+    startRunStore({
+      runId: "pending",
+      graphId: ROOT_GRAPH_ID,
+      nodeIds: nodes.map((n) => n.id),
+      abortController: controller,
+    });
     try {
       const result = await runGraph({
         graphId: ROOT_GRAPH_ID,
         nodes: runEngineNodes,
         edges: runEngineEdges,
+        signal: controller.signal,
         callbacks: {
+          onRunCreated: setRunIdStore,
           onNodeStatus: (nodeId, status) => {
             setRunNodeStatus(nodeId, status);
             setCanvasNodeStatus(nodeId, status);
@@ -250,8 +264,10 @@ export function AgentsGraphClient({
   }, [
     nodes,
     edges,
+    runStatus,
     resetAllStatuses,
     startRunStore,
+    setRunIdStore,
     setRunNodeStatus,
     setCanvasNodeStatus,
     appendRunToken,
@@ -291,7 +307,12 @@ export function AgentsGraphClient({
       )}
       <CanvasToolbar onDeleteSelected={handleDeleteSelected} hasSelection={!!selectedNodeId}>
         <ToolbarButton onClick={() => void handleAdd()}>Add agent</ToolbarButton>
-        <RunButton onRun={() => void handleRun()} isRunning={runStatus === "running"} disabled={nodes.length === 0} />
+        <RunButton
+          onRun={() => void handleRun()}
+          onStop={handleStop}
+          isRunning={runStatus === "running"}
+          disabled={nodes.length === 0}
+        />
       </CanvasToolbar>
       {selectedNode && (
         <NodeInspectorPanel
@@ -301,7 +322,9 @@ export function AgentsGraphClient({
           onClose={() => selectNode(null)}
         />
       )}
-      {showConsole && <RunConsolePanel nodeLabelById={nodeLabelById} onClose={() => setShowConsole(false)} />}
+      {showConsole && (
+        <RunConsolePanel nodeLabelById={nodeLabelById} onClose={() => setShowConsole(false)} onStop={handleStop} />
+      )}
     </div>
   );
 }

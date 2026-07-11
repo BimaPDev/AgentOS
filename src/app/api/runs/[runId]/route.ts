@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { finishRun, getRun, listRunLogs, listRunNodeStates } from "@/lib/db/queries/runs";
+import { cancelRun, finishRun, getRun, listRunLogs, listRunNodeStates } from "@/lib/db/queries/runs";
 
 interface RouteParams {
   params: Promise<{ runId: string }>;
@@ -19,8 +19,15 @@ export async function GET(_request: Request, { params }: RouteParams) {
 export async function PATCH(request: Request, { params }: RouteParams) {
   const { runId } = await params;
   const body = await request.json();
+
+  if (body.action === "cancel") {
+    const run = cancelRun(runId);
+    if (!run) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json(run);
+  }
+
   if (body.status !== "success" && body.status !== "error") {
-    return NextResponse.json({ error: "status must be 'success' or 'error'" }, { status: 400 });
+    return NextResponse.json({ error: "status must be 'success' or 'error', or action: 'cancel'" }, { status: 400 });
   }
   const run = finishRun(runId, body.status);
   if (!run) return NextResponse.json({ error: "not found" }, { status: 404 });

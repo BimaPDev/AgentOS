@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import clsx from "clsx";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Square } from "lucide-react";
 import { apiFetch } from "@/lib/utils/fetcher";
 import { timeAgo } from "@/lib/utils/time";
+import { useRunStore } from "@/lib/stores/run-store";
 import { StatusChip } from "@/components/dashboard/dashboard-panels";
 import type { Run, RunLog, RunNodeState } from "@/lib/types/domain";
 
@@ -98,7 +99,12 @@ function RunRowDetail({ runId }: { runId: string }) {
 export function RunsClient({ initialRuns }: { initialRuns: RunWithLabel[] }) {
   const [runs, setRuns] = useState<RunWithLabel[]>(initialRuns);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const liveRunId = useRunStore((s) => s.runId);
+  const liveStatus = useRunStore((s) => s.status);
+  const requestStop = useRunStore((s) => s.requestStop);
+  const finishLiveRun = useRunStore((s) => s.finishRun);
 
   useEffect(() => {
     const tick = setInterval(() => setNowMs(Date.now()), 1000);
@@ -118,6 +124,35 @@ export function RunsClient({ initialRuns }: { initialRuns: RunWithLabel[] }) {
     };
   }, []);
 
+  const handleStop = useCallback(
+    async (runId: string, event: MouseEvent) => {
+      event.stopPropagation();
+      if (stoppingId) return;
+      setStoppingId(runId);
+
+      // Kill the in-browser connector stream if this tab owns the live run.
+      if (liveStatus === "running" && (liveRunId === runId || liveRunId === "pending")) {
+        requestStop();
+      }
+
+      try {
+        const updated = await apiFetch<Run>(`/api/runs/${runId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ action: "cancel" }),
+        });
+        setRuns((current) => current.map((run) => (run.id === runId ? { ...run, ...updated } : run)));
+        if (liveRunId === runId || liveRunId === "pending") {
+          finishLiveRun("error");
+        }
+      } catch {
+        // Poll will refresh; leave button re-enabled.
+      } finally {
+        setStoppingId(null);
+      }
+    },
+    [finishLiveRun, liveRunId, liveStatus, requestStop, stoppingId],
+  );
+
   if (runs.length === 0) {
     return (
       <div className="flex-1 overflow-auto p-8">
@@ -135,29 +170,44 @@ export function RunsClient({ initialRuns }: { initialRuns: RunWithLabel[] }) {
       <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
         {runs.map((run) => {
           const isOpen = expanded === run.id;
+          const isRunning = run.status === "running";
           return (
             <div key={run.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-              <button
-                onClick={() => setExpanded(isOpen ? null : run.id)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-              >
-                {isOpen ? (
-                  <ChevronDown size={14} className="shrink-0 text-zinc-400" />
-                ) : (
-                  <ChevronRight size={14} className="shrink-0 text-zinc-400" />
+              <div className="flex w-full items-center gap-3 px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(isOpen ? null : run.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  {isOpen ? (
+                    <ChevronDown size={14} className="shrink-0 text-zinc-400" />
+                  ) : (
+                    <ChevronRight size={14} className="shrink-0 text-zinc-400" />
+                  )}
+                  <StatusChip status={run.status} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                    {run.label}
+                  </span>
+                  <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">via {run.triggeredBy}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+                    {duration(run.startedAt, run.finishedAt)}
+                  </span>
+                  <span className="w-16 shrink-0 text-right text-xs text-zinc-400 dark:text-zinc-500">
+                    {timeAgo(run.startedAt, nowMs)}
+                  </span>
+                </button>
+                {isRunning && (
+                  <button
+                    type="button"
+                    onClick={(event) => void handleStop(run.id, event)}
+                    disabled={stoppingId === run.id}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-60"
+                  >
+                    <Square size={11} fill="currentColor" />
+                    {stoppingId === run.id ? "Stopping…" : "Stop"}
+                  </button>
                 )}
-                <StatusChip status={run.status} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                  {run.label}
-                </span>
-                <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">via {run.triggeredBy}</span>
-                <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
-                  {duration(run.startedAt, run.finishedAt)}
-                </span>
-                <span className="w-16 shrink-0 text-right text-xs text-zinc-400 dark:text-zinc-500">
-                  {timeAgo(run.startedAt, nowMs)}
-                </span>
-              </button>
+              </div>
               {isOpen && <RunRowDetail runId={run.id} />}
             </div>
           );

@@ -17,12 +17,16 @@ interface RunState {
   nodeOutputs: Record<string, string>;
   logLines: RunLogLine[];
   nextLogId: number;
+  abortController: AbortController | null;
 
-  startRun: (params: { runId: string; graphId: string; nodeIds: string[] }) => void;
+  startRun: (params: { runId: string; graphId: string; nodeIds: string[]; abortController?: AbortController }) => void;
+  setRunId: (runId: string) => void;
   setNodeStatus: (nodeId: string, status: RunStatus) => void;
   appendNodeToken: (nodeId: string, token: string) => void;
   addLog: (message: string, level?: RunLogLine["level"], nodeId?: string | null) => void;
   finishRun: (status: Extract<RunStatus, "success" | "error">) => void;
+  /** Abort the in-browser connector fetch for the live run (if any). */
+  requestStop: () => void;
   reset: () => void;
 }
 
@@ -34,8 +38,9 @@ export const useRunStore = create<RunState>((set, get) => ({
   nodeOutputs: {},
   logLines: [],
   nextLogId: 1,
+  abortController: null,
 
-  startRun: ({ runId, graphId, nodeIds }) =>
+  startRun: ({ runId, graphId, nodeIds, abortController = null }) =>
     set({
       runId,
       graphId,
@@ -44,7 +49,10 @@ export const useRunStore = create<RunState>((set, get) => ({
       nodeOutputs: {},
       logLines: [],
       nextLogId: 1,
+      abortController,
     }),
+
+  setRunId: (runId) => set({ runId }),
 
   setNodeStatus: (nodeId, status) =>
     set({ nodeStatuses: { ...get().nodeStatuses, [nodeId]: status } }),
@@ -63,8 +71,23 @@ export const useRunStore = create<RunState>((set, get) => ({
       nextLogId: state.nextLogId + 1,
     })),
 
-  finishRun: (status) => set({ status }),
+  finishRun: (status) => set({ status, abortController: null }),
+
+  requestStop: () => {
+    const controller = get().abortController;
+    controller?.abort();
+    set({ abortController: null });
+  },
 
   reset: () =>
-    set({ runId: null, graphId: null, status: "idle", nodeStatuses: {}, nodeOutputs: {}, logLines: [], nextLogId: 1 }),
+    set({
+      runId: null,
+      graphId: null,
+      status: "idle",
+      nodeStatuses: {},
+      nodeOutputs: {},
+      logLines: [],
+      nextLogId: 1,
+      abortController: null,
+    }),
 }));

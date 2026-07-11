@@ -26,6 +26,8 @@ export interface RunEngineCallbacks {
   onNodeStatus: (nodeId: string, status: RunStatus) => void;
   onToken: (nodeId: string, token: string) => void;
   onLog: (message: string, level?: "info" | "debug" | "error", nodeId?: string | null) => void;
+  /** Fired once the DB run row exists so the UI can correlate Stop with this run. */
+  onRunCreated?: (runId: string) => void;
 }
 
 export class GraphCycleError extends Error {
@@ -39,6 +41,8 @@ export interface RunGraphParams {
   nodes: RunEngineNode[];
   edges: RunEngineEdge[];
   callbacks: RunEngineCallbacks;
+  /** When aborted, the current connector request is cancelled and the run finishes as error. */
+  signal?: AbortSignal;
 }
 
 export interface RunGraphResult {
@@ -115,7 +119,42 @@ async function persistNodeState(
   });
 }
 
-export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphParams): Promise<RunGraphResult> {
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  );
+}
+
+async function haltRunAsCancelled(params: {
+  runId: string;
+  nodeId: string | null;
+  callbacks: RunEngineCallbacks;
+  log: (message: string, level?: "info" | "debug" | "error", nodeId?: string | null) => void;
+}): Promise<RunGraphResult> {
+  const { runId, nodeId, callbacks, log } = params;
+  if (nodeId) {
+    callbacks.onNodeStatus(nodeId, "error");
+    persistNodeState(runId, nodeId, {
+      status: "error",
+      errorText: "Cancelled by user",
+      finishedAt: new Date().toISOString(),
+    }).catch(() => {});
+  }
+  log("Run cancelled by user.", "error", nodeId);
+  await apiFetch(`/api/runs/${runId}`, { method: "PATCH", body: JSON.stringify({ status: "error" }) }).catch(
+    () => {},
+  );
+  return { runId, status: "error" };
+}
+
+export async function runGraph({
+  graphId,
+  nodes,
+  edges,
+  callbacks,
+  signal,
+}: RunGraphParams): Promise<RunGraphResult> {
   const nodeIds = nodes.map((n) => n.id);
   const { order, cycle } = topoSort(nodeIds, edges);
   if (cycle) throw new GraphCycleError();
@@ -124,6 +163,7 @@ export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphPar
     method: "POST",
     body: JSON.stringify({ graphId }),
   });
+  callbacks.onRunCreated?.(run.id);
 
   const nodesById = new Map(nodes.map((n) => [n.id, n]));
   const outputs = new Map<string, string>();
@@ -135,6 +175,10 @@ export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphPar
   log(`Run started for graph "${graphId}" (${order.length} node${order.length === 1 ? "" : "s"}).`);
 
   for (const nodeId of order) {
+    if (signal?.aborted) {
+      return haltRunAsCancelled({ runId: run.id, nodeId: null, callbacks, log });
+    }
+
     const node = nodesById.get(nodeId);
     if (!node) continue;
 
@@ -157,26 +201,34 @@ export async function runGraph({ graphId, nodes, edges, callbacks }: RunGraphPar
 
     let fullText = "";
     let errorMessage: string | null = null;
-    for await (const chunk of executeNode({
-      connectorType: node.connectorType,
-      agentId: nodeId,
-      prompt: inputText,
-      context: {
-        nodeType: node.nodeType,
-        toolName: node.toolName,
-        toolArgs: node.toolArgs,
-        workspaceFolder: node.workspaceFolder,
-        model: node.model,
-      },
-    })) {
-      if (chunk.type === "token") {
-        fullText += chunk.content;
-        callbacks.onToken(nodeId, chunk.content);
-      } else if (chunk.type === "tool-call") {
-        log(`Tool call: ${chunk.toolName}(${JSON.stringify(chunk.toolArgs)})`, "debug", nodeId);
-      } else if (chunk.type === "error") {
-        errorMessage = chunk.error;
+    try {
+      for await (const chunk of executeNode({
+        connectorType: node.connectorType,
+        agentId: nodeId,
+        prompt: inputText,
+        context: {
+          nodeType: node.nodeType,
+          toolName: node.toolName,
+          toolArgs: node.toolArgs,
+          workspaceFolder: node.workspaceFolder,
+          model: node.model,
+        },
+        signal,
+      })) {
+        if (chunk.type === "token") {
+          fullText += chunk.content;
+          callbacks.onToken(nodeId, chunk.content);
+        } else if (chunk.type === "tool-call") {
+          log(`Tool call: ${chunk.toolName}(${JSON.stringify(chunk.toolArgs)})`, "debug", nodeId);
+        } else if (chunk.type === "error") {
+          errorMessage = chunk.error;
+        }
       }
+    } catch (err) {
+      if (isAbortError(err) || signal?.aborted) {
+        return haltRunAsCancelled({ runId: run.id, nodeId, callbacks, log });
+      }
+      throw err;
     }
 
     if (errorMessage) {
